@@ -1,0 +1,42 @@
+{
+  "workflows": {
+    "react-development": {
+      "description": "Complete React.js development workflow",
+      "agents": [
+        {"role": "coordinator", "name": "main"},
+        {"role": "file_manager", "name": "files"},
+        {"role": "coder", "name": "dev"},
+        {"role": "code_reviewer", "name": "reviewer"},
+        {"role": "code_rewriter", "name": "fixer"},
+        {"role": "git_manager", "name": "git"}
+      ]
+    },
+    "code-review": {
+      "description": "Code quality and review workflow",
+      "agents": [
+        {"role": "coordinator", "name": "main"},
+        {"role": "code_reviewer", "name": "reviewer"},
+        {"role": "code_rewriter", "name": "fixer"}
+      ]
+    },
+    "full-development": {
+      "description": "Complete development team with all agents",
+      "agents": [
+        {"role": "coordinator", "name": "main"},
+        {"role": "file_manager", "name": "files"},
+        {"role": "coder", "name": "dev"},
+        {"role": "code_reviewer", "name": "reviewer"},
+        {"role": "code_rewriter", "name": "fixer"},
+        {"role": "git_manager", "name": "git"},
+        {"role": "researcher", "name": "research"}
+      ]
+    },
+    "minimal": {
+      "description": "Minimal setup with coordinator and coder",
+      "agents": [
+        {"role": "coordinator", "name": "main"},
+        {"role": "coder", "name": "dev"}
+      ]
+    }
+  }
+}

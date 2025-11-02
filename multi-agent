@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# Multi-Agent System Main Entry Point
+# This is the primary script to start the multi-agent system
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MULTI_AGENT_ROOT="$SCRIPT_DIR"
+BIN_DIR="$MULTI_AGENT_ROOT/bin"
+
+#!/bin/bash
+
+# Multi-Agent AI System Launcher
+# A sophisticated coordination system for specialized AI agents
+
+echo -e "\033[1;32m- Multi-Agent AI System\033[0m"
+echo "=========================="
+echo ""
+echo "Available agent roles:"
+echo "  1. coordinator   - Main orchestrator agent"
+echo "  2. coder         - Code analysis and generation"
+echo "  3. code_reviewer - Code quality assurance and optimization"
+echo "  4. code_rewriter - Fixes issues found by code reviewer"
+echo "  5. file_manager  - File operations and organization"
+echo "  6. git_manager   - Version control operations"  
+echo "  7. researcher    - Information gathering and analysis"
+echo ""
+
+case "${1:-help}" in
+    "start")
+        shift
+        exec "$BIN_DIR/launch.sh" "$@"
+        ;;
+    "demo")
+        python3 "$MULTI_AGENT_ROOT/examples/demo_multi_agents.py"
+        ;;
+    "status")
+        if [ -d "$MULTI_AGENT_ROOT/workspace/.agent_comm" ]; then
+            echo -e "\033[1;36m-- Agent Communication Status:\033[0m"
+            echo "=============================="
+            agents_file="$MULTI_AGENT_ROOT/workspace/.agent_comm/agents.json"
+            tasks_file="$MULTI_AGENT_ROOT/workspace/.agent_comm/tasks.json"
+            messages_file="$MULTI_AGENT_ROOT/workspace/.agent_comm/messages.json"
+            
+            if [ -f "$agents_file" ]; then
+                echo "Active Agents:"
+                python3 -c "import json; data=json.load(open('$agents_file')); [print(f'  • {a[\"id\"]} ({a[\"role\"]}) - {a[\"status\"]}') for a in data]" 2>/dev/null || echo "  No agents registered"
+            fi
+            
+            if [ -f "$tasks_file" ]; then
+                echo "-- Tasks:"
+                python3 -c "import json; data=json.load(open('$tasks_file')); print(f'  Total tasks: {len(data)}'); [print(f'  • {t[\"id\"]}: {t[\"status\"]}') for t in data[-5:]]" 2>/dev/null || echo "  No tasks found"
+            fi
+        else
+                echo -e "\033[1;31m-- No communication directory found. Start an agent first.\033[0m"
+            fi
+        ;;
+    "workspace")
+        cd "$MULTI_AGENT_ROOT/workspace"
+        echo "Opening workspace: $(pwd)"
+        exec $SHELL
+        ;;
+    "clean")
+        echo "🧹 Cleaning Multi-Agent System..."
+        
+        # Kill any running agents
+        pkill -f "multi_agent_terminal.py" 2>/dev/null && echo "Terminated running agents"
+        
+        # Clean communication files  
+        if [ -d "$MULTI_AGENT_ROOT/.agent_comm" ]; then
+            echo "[]" > "$MULTI_AGENT_ROOT/.agent_comm/agents.json"
+            echo "[]" > "$MULTI_AGENT_ROOT/.agent_comm/tasks.json"
+            echo "[]" > "$MULTI_AGENT_ROOT/.agent_comm/messages.json"
+            echo "🧹 Communication files cleaned"
+        fi
+        
+        # Also clean workspace comm files if they exist
+        if [ -d "$MULTI_AGENT_ROOT/workspace/.agent_comm" ]; then
+            echo "[]" > "$MULTI_AGENT_ROOT/workspace/.agent_comm/agents.json" 2>/dev/null
+            echo "[]" > "$MULTI_AGENT_ROOT/workspace/.agent_comm/tasks.json" 2>/dev/null
+            echo "[]" > "$MULTI_AGENT_ROOT/workspace/.agent_comm/messages.json" 2>/dev/null
+            echo "🧹 Workspace communication files cleaned"
+        fi
+        
+        echo "Multi-agent system cleaned and ready for fresh start!"
+        ;;
+    "cleanup"|"reset")
+        echo "🧹 Deep Cleanup - Resetting Multi-Agent System..."
+        "$MULTI_AGENT_ROOT/cleanup_agents_simple.py"
+        ;;
+    "help"|*)
+        echo "📚 Multi-Agent AI System Help"
+        echo "==============================="
+        echo ""
+        echo -e "\033[1;32m-- Quick Start:\033[0m"
+        echo "  ./multi-agent start coordinator main      # Start coordinator"
+        echo "  ./multi-agent start coder dev             # Start coder (new terminal)"
+        echo "  ./multi-agent start code_reviewer reviewer # Start code reviewer"
+        echo "  ./multi-agent start code_rewriter fixer   # Start code rewriter"
+        echo "  ./multi-agent start file_manager files    # Start file manager"
+        echo ""
+        echo "📖 Examples:"
+        echo "  ./multi-agent demo                       # See system demo"
+        echo "  ./multi-agent status                     # Check active agents"
+        echo "  ./multi-agent workspace                  # Enter workspace"
+        echo "  ./multi-agent clean                      # Quick cleanup"
+        echo "  ./multi-agent cleanup                    # Deep cleanup (thorough)"
+        echo ""
+        echo "-- Directory Structure:"
+        echo "  multi-agent/"
+        echo "  ├── multi-agent           # Main entry script"  
+        echo "  ├── bin/                  # Executables"
+        echo "  │   ├── launch.sh         # Agent launcher"
+        echo "  │   └── multi_agent_terminal.py"
+        echo "  ├── workspace/            # Working directory"
+        echo "  │   └── .agent_comm/      # Inter-agent communication"
+        echo "  ├── examples/             # Demo scripts"
+        echo "  └── docs/                 # Documentation"
+        ;;
+esac
