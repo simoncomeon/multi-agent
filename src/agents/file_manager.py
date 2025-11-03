@@ -98,12 +98,116 @@ class FileManagerAgent:
                 "files_created": self.list_created_files(project_path)
             }
     
+    def analyze_project_requirements(self, description: str, task_data: Dict = None) -> Dict:
+        """Extract project requirements from task description and data"""
+        desc_lower = description.lower()
+        
+        # Determine project type and framework
+        project_info = {
+            "name": None,
+            "type": "generic",
+            "framework": "unknown"
+        }
+        
+        # Extract project name from task data or description
+        if task_data and task_data.get('project_name'):
+            project_info["name"] = task_data['project_name']
+        else:
+            project_info["name"] = self.extract_project_name_from_description(description, "new-project")
+        
+        # Detect project type and framework
+        if any(framework in desc_lower for framework in ['react', 'vue', 'angular']):
+            project_info["type"] = "web_frontend"
+            if 'react' in desc_lower:
+                project_info["framework"] = "react"
+            elif 'vue' in desc_lower:
+                project_info["framework"] = "vue"
+            elif 'angular' in desc_lower:
+                project_info["framework"] = "angular"
+        elif any(keyword in desc_lower for keyword in ['python', 'flask', 'django', 'fastapi']):
+            project_info["type"] = "python"
+            if 'flask' in desc_lower:
+                project_info["framework"] = "flask"
+            elif 'django' in desc_lower:
+                project_info["framework"] = "django"
+            elif 'fastapi' in desc_lower:
+                project_info["framework"] = "fastapi"
+            else:
+                project_info["framework"] = "python"
+        elif any(keyword in desc_lower for keyword in ['node', 'express', 'nodejs']):
+            project_info["type"] = "nodejs"
+            project_info["framework"] = "express"
+        else:
+            # Generic project - determine based on context
+            project_info["type"] = "web_frontend"
+            project_info["framework"] = "react"  # Default to React
+        
+        return project_info
+    
+    def create_project_structure(self, project_info: Dict) -> str:
+        """Create actual project structure based on project info"""
+        project_name = project_info["name"]
+        project_type = project_info["type"]
+        framework = project_info["framework"]
+        
+        project_path = os.path.join(self.workspace_dir, project_name)
+        
+        colored_print(f"   CREATING: {project_type} project with {framework}", Colors.BRIGHT_GREEN)
+        colored_print(f"   PATH: {project_path}", Colors.GREEN)
+        
+        # Create base project directory
+        os.makedirs(project_path, exist_ok=True)
+        
+        # Create project structure based on type and framework
+        if project_type == "web_frontend":
+            if framework == "react":
+                self._create_react_project_files(project_path, project_name)
+            elif framework == "vue":
+                self._create_vue_project_files(project_path, project_name)
+            else:
+                self._create_generic_web_project_files(project_path, project_name)
+        elif project_type == "python":
+            if framework == "flask":
+                self._create_flask_project_files(project_path, project_name)
+            else:
+                self._create_python_project_files(project_path, project_name)
+        elif project_type == "nodejs":
+            self._create_nodejs_project_files(project_path, project_name)
+        else:
+            self._create_generic_project_files(project_path, project_name)
+        
+        # Set this as the current project
+        self.terminal.set_project_process(project_name)
+        
+        return project_path
+    
+    def list_created_files(self, project_path: str) -> List[str]:
+        """List all files created in the project"""
+        files = []
+        if os.path.exists(project_path):
+            for root, dirs, filenames in os.walk(project_path):
+                for filename in filenames:
+                    rel_path = os.path.relpath(os.path.join(root, filename), project_path)
+                    files.append(rel_path)
+        return files
+    
     def auto_locate_project_directory(self, description: str, task_data: Dict = None) -> Dict:
         """Automatically locate existing project directory without creating UnknownProject"""
         
         colored_print(f"   AUTO: Scanning workspace for existing projects...", Colors.CYAN)
         
-        # PRIORITY 1: Use current project if already set
+        # Check if we want to force a new project
+        force_new = (
+            "new" in description.lower() or 
+            "create" in description.lower() and "project" in description.lower() or
+            (task_data and task_data.get('project_name') and not os.path.exists(os.path.join(self.workspace_dir, task_data['project_name'])))
+        )
+        
+        if force_new:
+            colored_print(f"   FORCE_NEW: Creating new project as requested", Colors.BRIGHT_YELLOW)
+            return None
+        
+        # PRIORITY 1: Use current project if already set (only if not forcing new)
         if hasattr(self.terminal, 'current_project_process') and self.terminal.current_project_process:
             current_path = os.path.join(self.workspace_dir, self.terminal.current_project_process)
             if os.path.exists(current_path):
@@ -932,3 +1036,310 @@ Package info: {data.get('package_info', {})}
             # Generate based on timestamp
             timestamp = datetime.now().strftime("%H%M%S")
             return f"{default_prefix}-{timestamp}"
+    
+    def _create_react_project_files(self, project_path: str, project_name: str):
+        """Create React project structure and files"""
+        # Create directories
+        os.makedirs(os.path.join(project_path, "src"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "src", "components"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "public"), exist_ok=True)
+        
+        # Create package.json
+        package_json = {
+            "name": project_name,
+            "version": "1.0.0",
+            "dependencies": {
+                "react": "^18.0.0",
+                "react-dom": "^18.0.0"
+            },
+            "scripts": {
+                "start": "react-scripts start",
+                "build": "react-scripts build",
+                "test": "react-scripts test"
+            }
+        }
+        
+        with open(os.path.join(project_path, "package.json"), "w") as f:
+            import json
+            json.dump(package_json, f, indent=2)
+        
+        # Create basic React app files
+        app_js = f"""import React from 'react';
+import './App.css';
+
+function App() {{
+  return (
+    <div className="App">
+      <h1>Welcome to {project_name}</h1>
+    </div>
+  );
+}}
+
+export default App;"""
+        
+        with open(os.path.join(project_path, "src", "App.js"), "w") as f:
+            f.write(app_js)
+        
+        # Create index.js
+        index_js = """import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);"""
+        
+        with open(os.path.join(project_path, "src", "index.js"), "w") as f:
+            f.write(index_js)
+        
+        # Create public/index.html
+        index_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{project_name}</title>
+</head>
+<body>
+    <div id="root"></div>
+</body>
+</html>"""
+        
+        with open(os.path.join(project_path, "public", "index.html"), "w") as f:
+            f.write(index_html)
+        
+        colored_print(f"   ✅ Created React project structure", Colors.GREEN)
+    
+    def _create_vue_project_files(self, project_path: str, project_name: str):
+        """Create Vue.js project structure and files"""
+        # Create directories
+        os.makedirs(os.path.join(project_path, "src"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "src", "components"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "public"), exist_ok=True)
+        
+        # Create package.json
+        package_json = {
+            "name": project_name,
+            "version": "1.0.0",
+            "dependencies": {
+                "vue": "^3.0.0"
+            },
+            "scripts": {
+                "dev": "vite",
+                "build": "vite build"
+            }
+        }
+        
+        with open(os.path.join(project_path, "package.json"), "w") as f:
+            import json
+            json.dump(package_json, f, indent=2)
+        
+        # Create Vue app file
+        app_vue = f"""<template>
+  <div id="app">
+    <h1>Welcome to {project_name}</h1>
+  </div>
+</template>
+
+<script>
+export default {{
+  name: 'App'
+}}
+</script>"""
+        
+        with open(os.path.join(project_path, "src", "App.vue"), "w") as f:
+            f.write(app_vue)
+        
+        colored_print(f"   ✅ Created Vue.js project structure", Colors.GREEN)
+    
+    def _create_python_project_files(self, project_path: str, project_name: str):
+        """Create Python project structure and files"""
+        # Create directories
+        os.makedirs(os.path.join(project_path, "src"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "tests"), exist_ok=True)
+        
+        # Create requirements.txt
+        with open(os.path.join(project_path, "requirements.txt"), "w") as f:
+            f.write("# Python dependencies\n")
+        
+        # Create main.py
+        main_py = f"""#!/usr/bin/env python3
+\"\"\"
+{project_name} - Main application
+\"\"\"
+
+def main():
+    print("Welcome to {project_name}")
+
+if __name__ == "__main__":
+    main()
+"""
+        
+        with open(os.path.join(project_path, "main.py"), "w") as f:
+            f.write(main_py)
+        
+        # Create README.md
+        readme = f"""# {project_name}
+
+A Python project.
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Usage
+
+```bash
+python main.py
+```
+"""
+        
+        with open(os.path.join(project_path, "README.md"), "w") as f:
+            f.write(readme)
+        
+        colored_print(f"   ✅ Created Python project structure", Colors.GREEN)
+    
+    def _create_flask_project_files(self, project_path: str, project_name: str):
+        """Create Flask project structure and files"""
+        # Create directories
+        os.makedirs(os.path.join(project_path, "templates"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "static"), exist_ok=True)
+        
+        # Create requirements.txt
+        with open(os.path.join(project_path, "requirements.txt"), "w") as f:
+            f.write("Flask==2.3.0\n")
+        
+        # Create app.py
+        app_py = f"""from flask import Flask, render_template
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return render_template('index.html', title='{project_name}')
+
+if __name__ == '__main__':
+    app.run(debug=True)
+"""
+        
+        with open(os.path.join(project_path, "app.py"), "w") as f:
+            f.write(app_py)
+        
+        # Create templates/index.html
+        index_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>{{{{ title }}}}</title>
+</head>
+<body>
+    <h1>Welcome to {project_name}</h1>
+</body>
+</html>"""
+        
+        with open(os.path.join(project_path, "templates", "index.html"), "w") as f:
+            f.write(index_html)
+        
+        colored_print(f"   ✅ Created Flask project structure", Colors.GREEN)
+    
+    def _create_nodejs_project_files(self, project_path: str, project_name: str):
+        """Create Node.js/Express project structure and files"""
+        # Create package.json
+        package_json = {
+            "name": project_name,
+            "version": "1.0.0",
+            "main": "server.js",
+            "dependencies": {
+                "express": "^4.18.0"
+            },
+            "scripts": {
+                "start": "node server.js",
+                "dev": "nodemon server.js"
+            }
+        }
+        
+        with open(os.path.join(project_path, "package.json"), "w") as f:
+            import json
+            json.dump(package_json, f, indent=2)
+        
+        # Create server.js
+        server_js = f"""const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {{
+    res.send('<h1>Welcome to {project_name}</h1>');
+}});
+
+app.listen(PORT, () => {{
+    console.log(`Server running on port ${{PORT}}`);
+}});
+"""
+        
+        with open(os.path.join(project_path, "server.js"), "w") as f:
+            f.write(server_js)
+        
+        colored_print(f"   ✅ Created Node.js project structure", Colors.GREEN)
+    
+    def _create_generic_web_project_files(self, project_path: str, project_name: str):
+        """Create generic web project structure"""
+        # Create basic HTML structure
+        os.makedirs(os.path.join(project_path, "css"), exist_ok=True)
+        os.makedirs(os.path.join(project_path, "js"), exist_ok=True)
+        
+        # Create index.html
+        index_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{project_name}</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <h1>Welcome to {project_name}</h1>
+    <script src="js/main.js"></script>
+</body>
+</html>"""
+        
+        with open(os.path.join(project_path, "index.html"), "w") as f:
+            f.write(index_html)
+        
+        # Create basic CSS
+        style_css = """body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+}
+
+h1 {
+    color: #333;
+}"""
+        
+        with open(os.path.join(project_path, "css", "style.css"), "w") as f:
+            f.write(style_css)
+        
+        # Create basic JS
+        main_js = """console.log('Project initialized');"""
+        
+        with open(os.path.join(project_path, "js", "main.js"), "w") as f:
+            f.write(main_js)
+        
+        colored_print(f"   ✅ Created generic web project structure", Colors.GREEN)
+    
+    def _create_generic_project_files(self, project_path: str, project_name: str):
+        """Create basic project structure"""
+        # Create README.md
+        readme = f"""# {project_name}
+
+A new project.
+
+## Getting Started
+
+This is a basic project structure.
+"""
+        
+        with open(os.path.join(project_path, "README.md"), "w") as f:
+            f.write(readme)
+        
+        colored_print(f"   ✅ Created generic project structure", Colors.GREEN)

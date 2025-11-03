@@ -1,0 +1,31 @@
+# Ollama Configuration - Copy this to .env file or set as environment variables
+
+# Basic Ollama Settings
+OLLAMA_MODEL=llama3.2                    # Default model to use
+OLLAMA_CMD=ollama                        # Local Ollama command (if using local)
+
+# Remote/Cloud Ollama Settings
+OLLAMA_USE_REMOTE=false                  # Set to 'true' to use remote Ollama API instead of local CLI
+OLLAMA_REMOTE_HOST=localhost             # Remote Ollama host (e.g., your-server.com, cloud-provider.com)
+OLLAMA_REMOTE_PORT=11434                 # Remote Ollama port (default: 11434)
+OLLAMA_API_KEY=                          # API key for cloud providers (if required)
+
+# Example configurations:
+
+# For local Ollama (default):
+# OLLAMA_USE_REMOTE=false
+# OLLAMA_CMD=ollama
+
+# For remote self-hosted Ollama:
+# OLLAMA_USE_REMOTE=true
+# OLLAMA_REMOTE_HOST=your-server.com
+# OLLAMA_REMOTE_PORT=11434
+
+# For cloud Ollama service (hypothetical):
+# OLLAMA_USE_REMOTE=true
+# OLLAMA_REMOTE_HOST=api.ollama-cloud.com
+# OLLAMA_REMOTE_PORT=443
+# OLLAMA_API_KEY=your-api-key-here
+
+# Note: Different cloud providers may use different authentication methods
+# Modify the ollama_client.py file accordingly for specific cloud providers

@@ -18,6 +18,10 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 import subprocess
 
+# Import our Ollama client
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+from src.core.ollama_client import ollama_client
+
 # === Enhanced Terminal Colors ===
 class Colors:
     RED = '\033[91m'
@@ -799,10 +803,11 @@ CONSTRAINTS:
 {chr(10).join(f"- {constraint}" for constraint in standardized_input["task_specification"]["constraints"])}
 
 INSTRUCTIONS:
-- Analyze the full project context to understand the existing structure and patterns
-- Provide implementation that integrates seamlessly with existing codebase
-- Use appropriate technology stack and patterns based on project analysis
-- Ensure output is production-ready and follows best practices
+- Analyze the project context to understand existing structure and patterns
+- Provide clean, executable code only
+- No explanations, comments, or documentation unless specifically requested
+- Use appropriate technology stack based on project analysis
+- Return only working, runnable code
 - Do not make assumptions about framework unless evident from project context
 
 Expected Output Format: {standardized_input["task_specification"]["expected_output"]}
@@ -923,26 +928,40 @@ This task requires AI model collaboration for detailed implementation guidance."
             colored_print(f"Task {task_id} failed: {e}", Colors.RED)
     
     def handle_code_generation_task(self, task: Dict) -> Dict:
-        """Handle code generation using collaborative approach"""
+        """Handle code generation using AI-first approach with collaborative fallback"""
         description = task["description"]
         
-        # NEW COLLABORATIVE APPROACH - Provide intelligent guidance instead of hardcoded solutions
-        guidance = self.analyze_task_and_provide_guidance(description)
-        
-        colored_print(f"\n=== COLLABORATIVE ANALYSIS ===", Colors.BRIGHT_CYAN)
-        colored_print(guidance, Colors.CYAN)
-        colored_print(f"================================\n", Colors.BRIGHT_CYAN)
-        
-        # Try AI model if available for actual implementation
+        # Try AI model first for actual implementation
         ai_result = self.try_ai_implementation(description)
         
-        return {
-            "type": "collaborative_guidance",
-            "guidance": guidance,
-            "ai_implementation": ai_result,
-            "approach": "collaborative",
-            "message": "This task requires AI model collaboration for implementation. The guidance above provides architectural direction."
-        }
+        if ai_result.get('status') == 'success':
+            colored_print(f"\n=== AI CODE GENERATION ===", Colors.BRIGHT_GREEN)
+            colored_print(f"Generated code for: {description}", Colors.GREEN)
+            colored_print(f"Model: {ai_result.get('model', 'unknown')}", Colors.CYAN)
+            colored_print(f"================================\n", Colors.BRIGHT_GREEN)
+            
+            return {
+                "type": "code_generation",
+                "code": ai_result.get('implementation', ''),
+                "model": ai_result.get('model', 'unknown'),
+                "approach": "ai_generated",
+                "message": f"Successfully generated code using {ai_result.get('model', 'AI model')}"
+            }
+        else:
+            # Fallback to collaborative guidance if AI unavailable
+            guidance = self.analyze_task_and_provide_guidance(description)
+            
+            colored_print(f"\n=== COLLABORATIVE ANALYSIS ===", Colors.BRIGHT_YELLOW)
+            colored_print(guidance, Colors.CYAN)
+            colored_print(f"================================\n", Colors.BRIGHT_YELLOW)
+            
+            return {
+                "type": "collaborative_guidance",
+                "guidance": guidance,
+                "ai_implementation": ai_result,
+                "approach": "collaborative",
+                "message": "AI model not available. Providing collaborative guidance instead."
+            }
     
     def analyze_task_and_provide_guidance(self, description: str) -> str:
         """Universal task analysis using AI collaboration with standardized input/output"""
@@ -1034,39 +1053,36 @@ COLLABORATION NOTES:
     def try_ai_implementation(self, description: str) -> Dict:
         """Try to get AI implementation if model is available"""
         try:
-            # Check if Ollama is available
-            result = subprocess.run([self.ollama_cmd, "list"], 
-                                  capture_output=True, text=True, timeout=5)
+            # Check if Ollama is available (local or remote)
+            if not ollama_client.is_available():
+                return {"status": "unavailable", "message": "Ollama not available"}
             
-            if result.returncode == 0:
-                # Generate prompt for AI model
-                prompt = f"""Please provide a clean, well-documented implementation for: {description}
+            # Generate prompt for AI model
+            prompt = f"""Create a simple, clean implementation for: {description}
 
-Focus on:
-- Clean, readable code
-- Proper error handling  
-- Best practices for the framework
-- Comments explaining key concepts
+Requirements:
+- Return ONLY executable code
+- No explanations or documentation 
+- No error handling unless specifically requested
+- No comments or examples
+- Just working, runnable code
 
-Implementation:"""
-                
-                # Run AI model
-                ai_result = subprocess.run([self.ollama_cmd, "run", self.default_model], 
-                                         input=prompt, capture_output=True, text=True, timeout=30)
-                
-                if ai_result.returncode == 0:
-                    return {
-                        "status": "success",
-                        "implementation": ai_result.stdout.strip(),
-                        "model": self.default_model
-                    }
-                else:
-                    return {"status": "error", "message": "AI model execution failed"}
+Code:"""
+            
+            # Use the unified Ollama client
+            result = ollama_client.generate(prompt)
+            
+            if result['success']:
+                return {
+                    "status": "success",
+                    "implementation": result['response'],
+                    "model": ollama_client.default_model
+                }
+            else:
+                return {"status": "error", "message": f"AI model execution failed: {result['error']}"}
             
         except Exception as e:
             return {"status": "unavailable", "message": f"AI model not available: {e}"}
-        
-        return {"status": "unavailable", "message": "AI model not accessible"}
     
     def handle_coordination_task(self, task: Dict) -> Dict:
         """Handle coordination tasks - delegate to other agents"""
@@ -2273,30 +2289,24 @@ export default {name};
     def try_ai_implementation_for_edit(self, prompt: str) -> Dict:
         """Try to get AI implementation for file editing"""
         try:
-            import subprocess
+            # Check if Ollama is available (local or remote)
+            if not ollama_client.is_available():
+                return {"status": "unavailable", "message": "Ollama not available"}
             
-            # Check if Ollama is available
-            result = subprocess.run([self.ollama_cmd, "list"], 
-                                  capture_output=True, text=True, timeout=5)
+            # Use the unified Ollama client
+            result = ollama_client.generate(prompt)
             
-            if result.returncode == 0:
-                # Run AI model with edit prompt
-                ai_result = subprocess.run([self.ollama_cmd, "run", self.default_model], 
-                                         input=prompt, capture_output=True, text=True, timeout=45)
-                
-                if ai_result.returncode == 0:
-                    return {
-                        "status": "success",
-                        "implementation": ai_result.stdout.strip(),
-                        "model": self.default_model
-                    }
-                else:
-                    return {"status": "error", "message": "AI model execution failed"}
+            if result['success']:
+                return {
+                    "status": "success",
+                    "implementation": result['response'],
+                    "model": ollama_client.default_model
+                }
+            else:
+                return {"status": "error", "message": f"AI model execution failed: {result['error']}"}
             
         except Exception as e:
             return {"status": "unavailable", "message": f"AI model not available: {e}"}
-        
-        return {"status": "unavailable", "message": "AI model not accessible"}
     
     def provide_edit_guidance(self, file_path: str, edit_requirements: Dict):
         """Provide collaborative guidance when AI model is unavailable"""

@@ -244,7 +244,7 @@ kill qa_specialist
 ## System Requirements
 
 - Python 3.8+
-- [Ollama](https://ollama.ai/) with llama3.2 model
+- [Ollama](https://ollama.ai/) with llama3.2 model (supports local CLI and remote API)
 - Git (for version control features)
 - For WSL: Windows Terminal recommended
 
