@@ -126,15 +126,15 @@ show_usage() {
     echo "  $0 coordinator:main file_manager:files coder:dev code_reviewer:reviewer code_rewriter:fixer git_manager:git"
     echo ""
     echo -e "${CYAN}Preset Workflows:${NC}"
-    echo "  $0 --react-dev    # Start agents for React development"
+    echo "  $0 --ai-dev       # Start agents for AI-powered development (any framework)"
     echo "  $0 --full-team    # Start all agent types"
     echo "  $0 --code-review  # Start code quality agents"
     echo ""
 }
 
 # Preset configurations
-start_react_dev() {
-    echo -e "${MAGENTA}Starting React Development Team...${NC}"
+start_ai_dev() {
+    echo -e "${MAGENTA}Starting AI-Powered Development Team...${NC}"
     launch_agents "coordinator:main" "file_manager:files" "coder:dev" "code_reviewer:reviewer" "code_rewriter:fixer" "git_manager:git"
 }
 
@@ -210,8 +210,8 @@ main() {
     
     # Handle preset workflows
     case "$1" in
-        --react-dev)
-            start_react_dev
+        --ai-dev)
+            start_ai_dev
             ;;
         --full-team)
             start_full_team

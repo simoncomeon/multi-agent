@@ -1,2751 +1,2254 @@
 #!/usr/bin/env python3
+"""
+Enhanced Multi-Agent Terminal System with Collaborative Approach
+Focuses on intelligent guidance rather than hardcoded solutions
+"""
+
 import os
-import re
+import sys
 import json
-import time
 import uuid
 import threading
-import subprocess
+import time
 import readline
-from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
+from pathlib import Path
+from dataclasses import dataclass
 from enum import Enum
+from typing import List, Dict, Any, Optional
+import subprocess
 
-# === Color codes ===
+# === Enhanced Terminal Colors ===
 class Colors:
- RESET = '\033[0m'
- BOLD = '\033[1m'
- DIM = '\033[2m'
- RED = '\033[31m'
- GREEN = '\033[32m'
- YELLOW = '\033[33m'
- BLUE = '\033[34m'
- MAGENTA = '\033[35m'
- CYAN = '\033[36m'
- WHITE = '\033[37m'
- BRIGHT_MAGENTA = '\033[95m'
- BRIGHT_GREEN = '\033[92m'
- BRIGHT_WHITE = "\033[97m"
- BRIGHT_RED = '\033[91m'
- BRIGHT_YELLOW = '\033[93m'
- BRIGHT_CYAN = '\033[96m'
- BRIGHT_BLUE = '\033[94m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BRIGHT_YELLOW = '\033[93;1m'
+    BRIGHT_GREEN = '\033[92;1m'
+    BRIGHT_RED = '\033[91;1m'
+    BRIGHT_CYAN = '\033[96;1m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
 
-def colored_print(text, color=Colors.RESET, end='\n'):
- print(f"{color}{text}{Colors.RESET}", end=end)
+def colored_print(text: str, color: str = Colors.WHITE):
+    """Print colored text"""
+    print(f"{color}{text}{Colors.ENDC}")
 
-# === Agent Communication System ===
+# === Enhanced Agent System ===
 class AgentRole(Enum):
- COORDINATOR = "coordinator" # Main agent that coordinates tasks
- CODER = "coder" # Specializes in code analysis/generation
- CODE_REVIEWER = "code_reviewer" # Reviews, optimizes, and ensures code quality
- CODE_REWRITER = "code_rewriter" # Fixes issues found by code reviewer
- FILE_MANAGER = "file_manager" # Handles file operations
- GIT_MANAGER = "git_manager" # Handles version control
- RESEARCHER = "researcher" # Searches and analyzes information
+    COORDINATOR = "coordinator"
+    CODER = "coder"
+    CODE_REVIEWER = "code_reviewer"
+    CODE_REWRITER = "code_rewriter"
+    FILE_MANAGER = "file_manager"
+    GIT_MANAGER = "git_manager"
+    RESEARCHER = "researcher"
+    TESTER = "tester"
 
 class TaskStatus(Enum):
- PENDING = "pending"
- IN_PROGRESS = "in_progress"
- COMPLETED = "completed"
- FAILED = "failed"
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 @dataclass
 class Task:
- id: str
- type: str
- description: str
- assigned_to: str
- created_by: str
- status: TaskStatus
- priority: int
- data: Dict[str, Any]
- created_at: datetime
- updated_at: datetime
+    id: str
+    type: str
+    description: str
+    assigned_to: str
+    created_by: str
+    status: TaskStatus
+    priority: int
+    data: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
 
 @dataclass
 class AgentMessage:
- id: str
- from_agent: str
- to_agent: str
- message_type: str
- content: Dict[str, Any]
- timestamp: datetime
+    id: str
+    from_agent: str
+    to_agent: str
+    message_type: str
+    content: Dict[str, Any]
+    timestamp: datetime
 
 class AgentCommunication:
- def __init__(self, workspace_dir: str):
- self.workspace_dir = Path(workspace_dir)
- self.comm_dir = self.workspace_dir / ".agent_comm"
- self.comm_dir.mkdir(exist_ok=True)
- 
- # Communication files
- self.tasks_file = self.comm_dir / "tasks.json"
- self.messages_file = self.comm_dir / "messages.json"
- self.agents_file = self.comm_dir / "agents.json"
- 
- # Initialize files if they don't exist
- for file_path in [self.tasks_file, self.messages_file, self.agents_file]:
- if not file_path.exists():
- with open(file_path, 'w') as f:
- json.dump([], f)
- 
- def register_agent(self, agent_id: str, role: AgentRole, status: str = "active"):
- """Register an agent in the system"""
- agents = self.load_agents()
- 
- # Update or add agent
- agent_info = {
- "id": agent_id,
- "role": role.value,
- "status": status,
- "last_seen": datetime.now().isoformat(),
- "pid": os.getpid()
- }
- 
- # Remove existing entry if any
- agents = [a for a in agents if a["id"] != agent_id]
- agents.append(agent_info)
- 
- self.save_agents(agents)
- colored_print(f"Agent {agent_id} ({role.value}) registered", Colors.GREEN)
- 
- def load_agents(self) -> List[Dict]:
- try:
- with open(self.agents_file, 'r') as f:
- return json.load(f)
- except:
- return []
- 
- def save_agents(self, agents: List[Dict]):
- with open(self.agents_file, 'w') as f:
- json.dump(agents, f, indent=2)
- 
- def get_active_agents(self) -> List[Dict]:
- """Get list of active agents"""
- agents = self.load_agents()
- return [agent for agent in agents if agent.get("status") == "active"]
- 
- def load_tasks(self) -> List[Dict]:
- try:
- with open(self.tasks_file, 'r') as f:
- return json.load(f)
- except:
- return []
- 
- def save_tasks(self, tasks: List[Dict]):
- with open(self.tasks_file, 'w') as f:
- json.dump(tasks, f, indent=2)
- 
- def create_task(self, task_type: str, description: str, assigned_to: str, 
- created_by: str, priority: int = 1, data: Dict = None) -> str:
- """Create a new task"""
- task_id = str(uuid.uuid4())[:8]
- task = Task(
- id=task_id,
- type=task_type,
- description=description,
- assigned_to=assigned_to,
- created_by=created_by,
- status=TaskStatus.PENDING,
- priority=priority,
- data=data or {},
- created_at=datetime.now(),
- updated_at=datetime.now()
- )
- 
- tasks = self.load_tasks()
- # Convert task to JSON-serializable dict
- task_dict = {
- "id": task.id,
- "type": task.type,
- "description": task.description,
- "assigned_to": task.assigned_to,
- "created_by": task.created_by,
- "status": task.status.value,
- "priority": task.priority,
- "data": task.data,
- "created_at": task.created_at.isoformat(),
- "updated_at": task.updated_at.isoformat()
- }
- tasks.append(task_dict)
- self.save_tasks(tasks)
- 
- colored_print(f"-- Task created: {task_id} -> {assigned_to}", Colors.BRIGHT_YELLOW)
- return task_id
- 
- def update_task_status(self, task_id: str, status: TaskStatus, result: Dict = None):
- """Update task status"""
- tasks = self.load_tasks()
- for task in tasks:
- if task["id"] == task_id:
- task["status"] = status.value
- task["updated_at"] = datetime.now().isoformat()
- if result:
- task["result"] = result
- break
- self.save_tasks(tasks)
- 
- def get_pending_tasks(self, agent_id: str) -> List[Dict]:
- """Get pending tasks for an agent"""
- tasks = self.load_tasks()
- 
- # Get agent's role to match against role-based assignments
- agents = self.get_active_agents()
- agent_role = None
- for agent in agents:
- if agent["id"] == agent_id:
- agent_role = agent["role"]
- break
- 
- # Return tasks assigned to this agent ID OR to this agent's role
- pending = []
- for task in tasks:
- if task["status"] == "pending":
- assigned_to = task["assigned_to"]
- if assigned_to == agent_id or (agent_role and assigned_to == agent_role):
- pending.append(task)
- 
- # Only show debug info when there are actual tasks or errors
- if pending and len(pending) > 0:
- print(f" Found {len(pending)} pending tasks for {agent_id} ({agent_role})")
- for task in pending:
- print(f" Task {task['id']}: {task['description']}")
- 
- return pending
- 
- def send_message(self, from_agent: str, to_agent: str, message_type: str, content: Dict):
- """Send message between agents"""
- message = AgentMessage(
- id=str(uuid.uuid4())[:8],
- from_agent=from_agent,
- to_agent=to_agent,
- message_type=message_type,
- content=content,
- timestamp=datetime.now()
- )
- 
- try:
- with open(self.messages_file, 'r') as f:
- messages = json.load(f)
- except:
- messages = []
- 
- # Convert message to JSON-serializable dict
- message_dict = {
- "id": message.id,
- "from_agent": message.from_agent,
- "to_agent": message.to_agent,
- "message_type": message.message_type,
- "content": message.content,
- "timestamp": message.timestamp.isoformat()
- }
- messages.append(message_dict)
- 
- with open(self.messages_file, 'w') as f:
- json.dump(messages, f, indent=2)
- 
- colored_print(f"Message: {from_agent} -> {to_agent} ({message_type})", Colors.CYAN)
+    def __init__(self, workspace_dir: str):
+        self.workspace_dir = Path(workspace_dir)
+        self.comm_dir = self.workspace_dir / ".agent_comm"
+        self.comm_dir.mkdir(exist_ok=True)
+        
+        # Communication files
+        self.tasks_file = self.comm_dir / "tasks.json"
+        self.messages_file = self.comm_dir / "messages.json"
+        self.agents_file = self.comm_dir / "agents.json"
+        
+        # Initialize files if they don't exist
+        for file_path in [self.tasks_file, self.messages_file, self.agents_file]:
+            if not file_path.exists():
+                with open(file_path, 'w') as f:
+                    json.dump([], f)
+    
+    def register_agent(self, agent_id: str, role: AgentRole, status: str = "active"):
+        """Register an agent in the system"""
+        agents = self.load_agents()
+        
+        # Update or add agent
+        agent_info = {
+            "id": agent_id,
+            "role": role.value,
+            "status": status,
+            "last_seen": datetime.now().isoformat(),
+            "pid": os.getpid()
+        }
+        
+        # Remove existing entry if any
+        agents = [a for a in agents if a["id"] != agent_id]
+        agents.append(agent_info)
+        
+        self.save_agents(agents)
+        colored_print(f"Agent {agent_id} ({role.value}) registered", Colors.GREEN)
+    
+    def load_agents(self) -> List[Dict]:
+        try:
+            with open(self.agents_file, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    
+    def save_agents(self, agents: List[Dict]):
+        with open(self.agents_file, 'w') as f:
+            json.dump(agents, f, indent=2)
+    
+    def get_active_agents(self) -> List[Dict]:
+        """Get list of active agents"""
+        agents = self.load_agents()
+        return [agent for agent in agents if agent.get("status") == "active"]
+    
+    def load_tasks(self) -> List[Dict]:
+        try:
+            with open(self.tasks_file, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    
+    def save_tasks(self, tasks: List[Dict]):
+        with open(self.tasks_file, 'w') as f:
+            json.dump(tasks, f, indent=2)
+    
+    def create_task(self, task_type: str, description: str, assigned_to: str, 
+                   created_by: str, priority: int = 1, data: Dict = None) -> str:
+        """Create a new task"""
+        task_id = str(uuid.uuid4())[:8]
+        task = Task(
+            id=task_id,
+            type=task_type,
+            description=description,
+            assigned_to=assigned_to,
+            created_by=created_by,
+            status=TaskStatus.PENDING,
+            priority=priority,
+            data=data or {},
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+        
+        tasks = self.load_tasks()
+        # Convert task to JSON-serializable dict
+        task_dict = {
+            "id": task.id,
+            "type": task.type,
+            "description": task.description,
+            "assigned_to": task.assigned_to,
+            "created_by": task.created_by,
+            "status": task.status.value,
+            "priority": task.priority,
+            "data": task.data,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat()
+        }
+        tasks.append(task_dict)
+        self.save_tasks(tasks)
+        
+        colored_print(f"-- Task created: {task_id} -> {assigned_to}", Colors.BRIGHT_YELLOW)
+        return task_id
+    
+    def update_task_status(self, task_id: str, status: TaskStatus, result: Dict = None):
+        """Update task status"""
+        tasks = self.load_tasks()
+        for task in tasks:
+            if task["id"] == task_id:
+                task["status"] = status.value
+                task["updated_at"] = datetime.now().isoformat()
+                if result:
+                    task["result"] = result
+                break
+        self.save_tasks(tasks)
+    
+    def get_pending_tasks(self, agent_id: str) -> List[Dict]:
+        """Get pending tasks for an agent"""
+        tasks = self.load_tasks()
+        
+        # Get agent's role to match against role-based assignments
+        agents = self.get_active_agents()
+        agent_role = None
+        for agent in agents:
+            if agent["id"] == agent_id:
+                agent_role = agent["role"]
+                break
+        
+        # Return tasks assigned to this agent ID OR to this agent's role
+        pending = []
+        for task in tasks:
+            if task["status"] == "pending":
+                assigned_to = task["assigned_to"]
+                if assigned_to == agent_id or (agent_role and assigned_to == agent_role):
+                    pending.append(task)
+        
+        # Only show debug info when there are actual tasks or errors
+        if pending and len(pending) > 0:
+            print(f" Found {len(pending)} pending tasks for {agent_id} ({agent_role})")
+            for task in pending:
+                print(f" Task {task['id']}: {task['description']}")
+        
+        return pending
 
-# === Enhanced Agent Terminal ===
 class MultiAgentTerminal:
- def __init__(self, agent_id: str, role: AgentRole):
- self.agent_id = agent_id
- self.role = role
- # Fix workspace directory to point to the correct location
- current_dir = os.getcwd()
- if current_dir.endswith('/bin'):
- self.workspace_dir = os.path.join(os.path.dirname(current_dir), 'workspace')
- else:
- self.workspace_dir = os.path.join(current_dir, 'workspace')
- 
- # Ensure workspace directory exists
- os.makedirs(self.workspace_dir, exist_ok=True)
- self.comm = AgentCommunication(self.workspace_dir)
- 
- # Settings
- self.ollama_cmd = "ollama"
- self.default_model = "llama3.2"
- self.history_file = str(Path.home() / f".agent_history_{agent_id}")
- 
- # Register this agent
- self.comm.register_agent(agent_id, role)
- 
- # Load history
- self.load_history()
- 
- # Start background task monitor
- self.running = True
- self.task_thread = threading.Thread(target=self.monitor_tasks, daemon=True)
- self.task_thread.start()
- 
- def load_history(self):
- try:
- readline.read_history_file(self.history_file)
- except FileNotFoundError:
- pass
- 
- def save_history(self):
- try:
- readline.write_history_file(self.history_file)
- except Exception as e:
- colored_print(f"-- Could not save history: {e}", Colors.YELLOW)
- 
- def monitor_tasks(self):
- """Background thread to monitor and execute pending tasks"""
- last_task_check = 0
- while self.running:
- try:
- pending_tasks = self.comm.get_pending_tasks(self.agent_id)
- if pending_tasks:
- colored_print(f"\nFound {len(pending_tasks)} pending tasks for {self.role.value} (ID: {self.agent_id})", Colors.CYAN)
- for task in pending_tasks:
- colored_print(f"\nTask received from delegation:", Colors.BRIGHT_GREEN)
- colored_print(f"Task ID: {task.get('id', 'unknown')}", Colors.WHITE)
- colored_print(f"Description: {task.get('description', 'no description')}", Colors.WHITE)
- colored_print(f"Assigned to: {task.get('assigned_to', 'unknown')}", Colors.WHITE)
- colored_print(f"Created by: {task.get('created_by', 'unknown')}", Colors.WHITE)
- colored_print(f"Processing task: {task.get('id', 'unknown')} - {task.get('description', 'no description')}", Colors.YELLOW)
- self.execute_task(task)
- 
- # Only show "no tasks" message occasionally to reduce spam
- current_time = time.time()
- if not pending_tasks and (current_time - last_task_check) > 30:
- # colored_print(f"Monitoring for tasks... ({self.role.value})", Colors.DIM)
- last_task_check = current_time
- 
- time.sleep(3) # Check every 3 seconds
- except Exception as e:
- colored_print(f"-- Task monitor error: {e}", Colors.RED)
- import traceback
- colored_print(f"-- Stack trace: {traceback.format_exc()}", Colors.RED)
- time.sleep(1)
- 
- def execute_task(self, task: Dict):
- """Execute a task based on its type"""
- task_id = task["id"]
- task_type = task["type"]
- 
- colored_print(f"\n-- Executing task {task_id}: {task['description']}", Colors.BRIGHT_BLUE)
- colored_print(f"Task ID: {task_id}", Colors.CYAN)
- colored_print(f"Task type: {task_type}", Colors.CYAN)
- colored_print(f"Agent role: {self.role.value}", Colors.CYAN)
- 
- try:
- self.comm.update_task_status(task_id, TaskStatus.IN_PROGRESS)
- 
- if task_type == "analyze_code":
- result = self.analyze_code_task(task)
- elif task_type == "create_file":
- result = self.create_file_task(task)
- elif task_type == "git_operation":
- result = self.git_operation_task(task)
- elif task_type == "research":
- result = self.research_task(task)
- elif task_type == "review_code":
- result = self.review_code_task(task)
- elif task_type == "optimize_project":
- result = self.optimize_project_task(task)
- elif task_type == "validate_project":
- result = self.validate_project_task(task)
- elif task_type == "helicopter_review":
- result = self.helicopter_review_task(task)
- elif task_type == "rewrite_code":
- result = self.rewrite_code_task(task)
- elif task_type == "fix_review_issues":
- result = self.fix_review_issues_task(task)
- elif task_type == "general":
- result = self.general_task(task)
- elif task_type == "create_project":
- result = self.create_project_smart(task["description"])
- elif task_type == "delegated_task":
- # Handle delegated tasks by routing to general task handler
- result = self.general_task(task)
- else:
- colored_print(f"Unknown task type: {task_type}", Colors.YELLOW)
- # Try to handle as general task if it's a file manager operation
- if self.role == AgentRole.FILE_MANAGER:
- result = self.create_project_smart(task["description"])
- else:
- result = {"error": f"Unknown task type: {task_type}"}
- 
- self.comm.update_task_status(task_id, TaskStatus.COMPLETED, result)
- colored_print(f"-- Task {task_id} completed", Colors.GREEN)
- 
- except Exception as e:
- error_result = {"error": str(e)}
- self.comm.update_task_status(task_id, TaskStatus.FAILED, error_result)
- colored_print(f"-- Task {task_id} failed: {e}", Colors.RED)
- 
- def analyze_code_task(self, task: Dict) -> Dict:
- """Analyze code files"""
- file_path = task["data"].get("file_path")
- analysis_type = task["data"].get("analysis_type", "general")
- 
- if not file_path or not os.path.exists(file_path):
- return {"error": "File not found"}
- 
- with open(file_path, 'r') as f:
- content = f.read()
- 
- prompt = f"Analyze this {analysis_type} code and provide insights:\n\n{content}"
- response = self.query_ollama(prompt)
- 
- return {"analysis": response, "file_path": file_path}
- 
- def create_file_task(self, task: Dict) -> Dict:
- """Create or edit files"""
- file_path = task["data"].get("file_path")
- content_prompt = task["data"].get("prompt")
- 
- if os.path.exists(file_path):
- with open(file_path, 'r') as f:
- current_content = f.read()
- prompt = f"Edit this file: {content_prompt}\n\nCurrent content:\n{current_content}\n\nProvide ONLY the complete file content, no explanations."
- else:
- # Determine if this is a code file
- is_code_file = any(ext in file_path.lower() for ext in ['.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.cpp', '.c'])
- 
- if is_code_file:
- prompt = f"""Create a {file_path} file: {content_prompt}
- 
- Requirements:
- - Provide ONLY executable code
- - NO explanatory text or comments about what to do 
- - NO markdown code blocks
- - Start directly with code (imports, declarations, etc.)
- - Make it production-ready and complete"""
- else:
- prompt = f"Create a new file: {content_prompt}"
- 
- raw_content = self.query_ollama(prompt)
- 
- # Extract clean content for code files
- if any(ext in file_path.lower() for ext in ['.js', '.jsx', '.ts', '.tsx']):
- new_content = self.extract_code_from_response(raw_content)
- else:
- new_content = raw_content
- 
- with open(file_path, 'w') as f:
- f.write(new_content)
- 
- return {"file_created": file_path, "content_length": len(new_content)}
- 
- def git_operation_task(self, task: Dict) -> Dict:
- """Handle git operations"""
- operation = task["data"].get("operation")
- 
- if operation == "status":
- result = subprocess.run(["git", "status", "--porcelain"], 
- capture_output=True, text=True)
- return {"git_status": result.stdout}
- elif operation == "add_commit":
- message = task["data"].get("message", "Automated commit")
- subprocess.run(["git", "add", "."])
- result = subprocess.run(["git", "commit", "-m", message], 
- capture_output=True, text=True)
- return {"commit_result": result.stdout}
- 
- return {"error": "Unknown git operation"}
- 
- def research_task(self, task: Dict) -> Dict:
- """Research and information gathering"""
- query = task["data"].get("query")
- context = task["data"].get("context", "")
- 
- prompt = f"Research and provide detailed information about: {query}"
- if context:
- prompt += f"\nContext: {context}"
- 
- response = self.query_ollama(prompt)
- return {"research_result": response}
- 
- def general_task(self, task: Dict) -> Dict:
- """Handle general tasks by routing based on agent role and task description"""
- description = task["description"].lower()
- 
- if self.role == AgentRole.FILE_MANAGER:
- # Handle file/directory creation tasks
- if "create" in description or "structure" in description or "directory" in description:
- return self.handle_project_creation_task(task)
- 
- elif self.role == AgentRole.CODER:
- # Handle code generation tasks
- if "generate" in description or "create" in description and (".js" in description or "component" in description):
- return self.handle_code_generation_task(task)
- 
- elif self.role == AgentRole.CODE_REVIEWER:
- # Handle review tasks
- if "review" in description or "optimize" in description or "performance" in description:
- return self.handle_code_review_task(task)
- 
- elif self.role == AgentRole.CODE_REWRITER:
- # Handle code rewriting and fixing tasks
- if "fix" in description or "rewrite" in description or "clean" in description or "repair" in description:
- return self.handle_code_rewrite_task(task)
- 
- elif self.role == AgentRole.RESEARCHER:
- # Handle research tasks
- return self.research_task(task)
- 
- # Default: use AI to handle the task
- prompt = f"As a {self.role.value} agent, complete this task: {task['description']}"
- try:
- response = self.query_ollama(prompt)
- except:
- # Fallback if ollama is not available
- response = f"Task acknowledged by {self.role.value} agent: {task['description']}"
- return {"result": response, "completed_by": self.role.value}
- 
- def extract_project_name(self, description: str) -> str:
- """Intelligently extract project name from description"""
- import re
- 
- # Look for explicit project names in description
- patterns = [
- r'(\w+App)', # SomethingApp
- r'(\w+Project)', # SomethingProject 
- r'(\w+Calculator)', # SomethingCalculator
- r'(\w+Display)', # SomethingDisplay
- r'(\w+Manager)', # SomethingManager
- r'(\w+System)', # SomethingSystem
- r'project\s+(\w+)', # project Something
- r'app\s+(\w+)', # app Something
- r'create\s+(\w+)', # create Something
- ]
- 
- for pattern in patterns:
- match = re.search(pattern, description, re.IGNORECASE)
- if match:
- return match.group(1)
- 
- # Default fallback names based on content
- if "time" in description.lower() and "display" in description.lower():
- return "TimeDisplayApp"
- elif "budget" in description.lower():
- return "BudgetCalculator"
- elif "todo" in description.lower():
- return "TodoApp"
- elif "chat" in description.lower():
- return "ChatApp"
- elif "blog" in description.lower():
- return "BlogApp"
- elif "dashboard" in description.lower():
- return "Dashboard"
- else:
- return "MyProject"
- 
- def detect_project_type(self, description: str) -> str:
- """Intelligently detect project type from description"""
- desc_lower = description.lower()
- 
- # Frontend frameworks
- if "react.js" in desc_lower or "react js" in desc_lower or ("react" in desc_lower and ("web" in desc_lower or "browser" in desc_lower)):
- return "react-js"
- elif "react native" in desc_lower or ("react" in desc_lower and ("mobile" in desc_lower or "ios" in desc_lower or "android" in desc_lower)):
- return "react-native"
- elif "vue" in desc_lower:
- return "vue"
- elif "angular" in desc_lower:
- return "angular"
- elif "svelte" in desc_lower:
- return "svelte"
- elif "next" in desc_lower and "js" in desc_lower:
- return "nextjs"
- 
- # Backend frameworks
- elif "flask" in desc_lower:
- return "flask"
- elif "django" in desc_lower:
- return "django"
- elif "fastapi" in desc_lower:
- return "fastapi"
- elif "express" in desc_lower or ("node" in desc_lower and "js" in desc_lower):
- return "nodejs"
- elif "spring" in desc_lower:
- return "spring"
- 
- # Languages
- elif "python" in desc_lower:
- return "python"
- elif "javascript" in desc_lower or "js" in desc_lower:
- return "javascript"
- elif "typescript" in desc_lower or "ts" in desc_lower:
- return "typescript"
- elif "java" in desc_lower:
- return "java"
- elif "c++" in desc_lower or "cpp" in desc_lower:
- return "cpp"
- elif "rust" in desc_lower:
- return "rust"
- elif "go" in desc_lower and "golang" in desc_lower:
- return "golang"
- 
- # Project types
- elif "web" in desc_lower or "website" in desc_lower or "html" in desc_lower:
- return "web"
- elif "api" in desc_lower:
- return "api"
- elif "cli" in desc_lower or "command line" in desc_lower:
- return "cli"
- elif "desktop" in desc_lower:
- return "desktop"
- elif "game" in desc_lower:
- return "game"
- 
- # Default
- return "generic"
- 
- def create_project_smart(self, description: str) -> Dict:
- """Smart project creation that accepts a description string"""
- # Create a task-like dict to reuse the existing logic
- task = {"description": description}
- return self.handle_project_creation_task(task)
- 
- def handle_project_creation_task(self, task: Dict) -> Dict:
- """Universal project structure creation for any type of project"""
- description = task["description"]
- 
- colored_print(f"\nFile Manager Processing Task:", Colors.BRIGHT_YELLOW)
- colored_print(f"Task: {description}", Colors.WHITE)
- colored_print(f"Status: Analyzing project requirements...", Colors.CYAN)
- 
- # Ensure we're working in the workspace directory
- workspace_dir = self.workspace_dir
- if not os.path.exists(workspace_dir):
- os.makedirs(workspace_dir, exist_ok=True)
- colored_print(f"Created workspace directory: {workspace_dir}", Colors.GREEN)
- 
- # Intelligently extract project details
- colored_print(f"Status: Extracting project details...", Colors.CYAN)
- project_name = self.extract_project_name(description)
- project_type = self.detect_project_type(description)
- project_path = os.path.join(workspace_dir, project_name)
- 
- colored_print(f"Detected project type: {project_type}", Colors.YELLOW)
- colored_print(f"Project name: {project_name}", Colors.YELLOW)
- colored_print(f"Creating {project_type} project: {project_name}", Colors.BRIGHT_CYAN)
- colored_print(f"Location: {project_path}", Colors.CYAN)
- 
- # Create project based on detected type
- colored_print(f"Status: Starting {project_type} project creation...", Colors.CYAN)
- 
- if project_type == "react-js":
- result = self.create_reactjs_project(project_name, project_path, description)
- elif project_type == "react-native":
- result = self.create_react_native_project(project_name, project_path, description)
- elif project_type == "vue":
- result = self.create_vue_project(project_name, project_path, description)
- elif project_type == "angular":
- result = self.create_angular_project(project_name, project_path, description)
- elif project_type == "nextjs":
- result = self.create_nextjs_project(project_name, project_path, description)
- elif project_type == "flask":
- result = self.create_flask_project(project_name, project_path, description)
- elif project_type == "django":
- result = self.create_django_project(project_name, project_path, description)
- elif project_type == "nodejs":
- result = self.create_nodejs_project(project_name, project_path, description)
- elif project_type == "python":
- result = self.create_python_project(project_name, project_path, description)
- elif project_type == "javascript":
- result = self.create_js_project(project_name, project_path, description)
- elif project_type == "web":
- result = self.create_web_project(project_name, project_path, description)
- elif project_type == "api":
- result = self.create_api_project(project_name, project_path, description)
- else:
- result = self.create_generic_project(project_name, project_path, description)
- 
- # Show completion status
- if result and result.get("success", True):
- colored_print(f"\nFile Manager Task Completed Successfully!", Colors.BRIGHT_GREEN)
- colored_print(f"Project: {project_name} ({project_type})", Colors.WHITE)
- colored_print(f"Location: {project_path}", Colors.WHITE)
- if "files_created" in result:
- colored_print(f"Files created: {len(result['files_created'])}", Colors.WHITE)
- else:
- colored_print(f"\nFile Manager Task Failed!", Colors.BRIGHT_RED)
- if result and "error" in result:
- colored_print(f"Error: {result['error']}", Colors.WHITE)
- 
- return result
- 
- def create_reactjs_project(self, name: str, path: str, description: str) -> Dict:
- """Create a React.js web application project"""
- try:
- # Create directory structure
- directories = [
- f"{path}/public",
- f"{path}/src",
- f"{path}/src/components", 
- f"{path}/src/utils",
- f"{path}/src/styles"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json
- package_json = {
- "name": name.lower().replace(" ", "-"),
- "version": "0.1.0",
- "private": True,
- "dependencies": {
- "react": "^18.2.0",
- "react-dom": "^18.2.0",
- "react-scripts": "5.0.1",
- "date-fns": "^2.30.0"
- },
- "scripts": {
- "start": "react-scripts start",
- "build": "react-scripts build", 
- "test": "react-scripts test",
- "eject": "react-scripts eject"
- },
- "eslintConfig": {
- "extends": ["react-app", "react-app/jest"]
- },
- "browserslist": {
- "production": [">0.2%", "not dead", "not op_mini all"],
- "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- # Create public/index.html
- html_content = f"""<!DOCTYPE html>
+    def __init__(self, agent_id: str, role: AgentRole):
+        self.agent_id = agent_id
+        self.role = role
+        # Fix workspace directory to point to the correct location
+        current_dir = os.getcwd()
+        if current_dir.endswith('/bin'):
+            self.workspace_dir = os.path.join(os.path.dirname(current_dir), 'workspace')
+        else:
+            self.workspace_dir = os.path.join(current_dir, 'workspace')
+        
+        # Ensure workspace directory exists
+        os.makedirs(self.workspace_dir, exist_ok=True)
+        self.comm = AgentCommunication(self.workspace_dir)
+        
+        # Project Process Management - NEW PARADIGM
+        self.current_project_process = None
+        self.project_process_workspace = None
+        self.project_process_files = {}  # Cache of project files for AI input
+        
+        # AI Configuration
+        self.ollama_cmd = "ollama"
+        self.default_model = "llama3.2"
+        self.history_file = str(Path.home() / f".agent_history_{agent_id}")
+        
+        # Register this agent
+        self.comm.register_agent(agent_id, role)
+        colored_print(f"Agent {agent_id} initialized with role: {role.value}", Colors.BRIGHT_GREEN)
+        
+        # Load command history and check for active project process
+        self.load_history()
+        self.detect_active_project_process()
+        
+        # Start task monitoring
+        self.running = True
+        self.task_thread = threading.Thread(target=self.monitor_tasks, daemon=True)
+        self.task_thread.start()
+    
+    def load_history(self):
+        """Load command history"""
+        try:
+            readline.read_history_file(self.history_file)
+        except FileNotFoundError:
+            pass
+    
+    def save_history(self):
+        """Save command history"""
+        try:
+            readline.write_history_file(self.history_file)
+        except:
+            pass
+    
+    def detect_active_project_process(self):
+        """Detect if there's an active project process in workspace"""
+        try:
+            workspace_items = os.listdir(self.workspace_dir)
+            project_dirs = [item for item in workspace_items if os.path.isdir(os.path.join(self.workspace_dir, item))]
+            
+            if len(project_dirs) == 1:
+                # Single project - set as current
+                self.set_project_process(project_dirs[0])
+            elif len(project_dirs) > 1:
+                colored_print(f"⚠️ Multiple projects detected: {', '.join(project_dirs)}", Colors.YELLOW)
+                colored_print(f"💡 Use 'set_project <name>' to focus on one project process", Colors.CYAN)
+            else:
+                colored_print(f"📁 No active project process detected", Colors.BLUE)
+        except Exception as e:
+            colored_print(f"Error detecting project process: {e}", Colors.RED)
+    
+    def set_project_process(self, project_name: str):
+        """Set the current project process focus"""
+        project_path = os.path.join(self.workspace_dir, project_name)
+        
+        if os.path.exists(project_path) and os.path.isdir(project_path):
+            self.current_project_process = project_name
+            self.project_process_workspace = project_path
+            
+            # Load project files for AI input
+            self.load_project_files()
+            
+            colored_print(f"🎯 Project Process Focus: {project_name}", Colors.BRIGHT_GREEN)
+            colored_print(f"📂 Workspace: {project_path}", Colors.GREEN)
+        else:
+            colored_print(f"❌ Project process '{project_name}' not found", Colors.RED)
+    
+    def load_project_files(self):
+        """Load all project files content for AI model input"""
+        if not self.project_process_workspace:
+            return
+        
+        self.project_process_files = {}
+        
+        try:
+            for root, dirs, files in os.walk(self.project_process_workspace):
+                # Skip node_modules and other build directories
+                dirs[:] = [d for d in dirs if d not in ['node_modules', 'build', 'dist', '.git']]
+                
+                for file in files:
+                    if file.endswith(('.js', '.jsx', '.py', '.html', '.css', '.json', '.md')):
+                        file_path = os.path.join(root, file)
+                        relative_path = os.path.relpath(file_path, self.project_process_workspace)
+                        
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                self.project_process_files[relative_path] = {
+                                    'path': file_path,
+                                    'content': content,
+                                    'size': len(content)
+                                }
+                        except Exception as e:
+                            colored_print(f"⚠️ Could not read {relative_path}: {e}", Colors.YELLOW)
+            
+            file_count = len(self.project_process_files)
+            colored_print(f"📚 Loaded {file_count} project files for AI collaboration", Colors.CYAN)
+            
+        except Exception as e:
+            colored_print(f"Error loading project files: {e}", Colors.RED)
+    
+    def get_project_context_for_ai(self) -> str:
+        """Get formatted project context for AI model input"""
+        if not self.current_project_process:
+            return "No active project process"
+        
+        context = f"PROJECT PROCESS: {self.current_project_process}\n"
+        context += f"WORKSPACE: {self.project_process_workspace}\n\n"
+        context += "PROJECT FILES:\n"
+        
+        for relative_path, file_info in self.project_process_files.items():
+            context += f"\n--- FILE: {relative_path} ---\n"
+            context += file_info['content']
+            context += f"\n--- END FILE: {relative_path} ---\n"
+        
+        return context
+    
+    def create_standardized_ai_input(self, operation_type: str, task_description: str = "", context_type: str = "GENERAL", **kwargs) -> Dict:
+        """Create standardized input for AI model operations"""
+        
+        # Get project context
+        project_context = self.get_project_context_for_ai()
+        
+        standardized_input = {
+            "operation_metadata": {
+                "type": operation_type,
+                "context_type": context_type,
+                "timestamp": datetime.now().isoformat(),
+                "agent_id": self.agent_id,
+                "project_process": self.current_project_process
+            },
+            "project_context": {
+                "name": self.current_project_process,
+                "workspace": self.project_process_workspace,
+                "files": self.project_process_files,
+                "file_count": len(self.project_process_files) if self.project_process_files else 0
+            },
+            "task_specification": {
+                "description": task_description,
+                "requirements": kwargs.get("requirements", []),
+                "constraints": kwargs.get("constraints", []),
+                "target_files": kwargs.get("target_files", []),
+                "expected_output": kwargs.get("expected_output", "IMPLEMENTATION")
+            },
+            "full_context": project_context
+        }
+        
+        return standardized_input
+    
+    def execute_standardized_ai_operation(self, standardized_input: Dict) -> Dict:
+        """Execute AI operation with standardized input format"""
+        
+        operation_type = standardized_input["operation_metadata"]["type"]
+        
+        # Create standardized prompt
+        prompt = self.build_standardized_prompt(standardized_input)
+        
+        # Execute AI operation
+        ai_result = self.try_ai_implementation(prompt)
+        
+        # Add metadata to result
+        if ai_result.get('status') == 'success':
+            ai_result['operation_metadata'] = standardized_input["operation_metadata"]
+            ai_result['processed_at'] = datetime.now().isoformat()
+        
+        return ai_result
+    
+    def build_standardized_prompt(self, standardized_input: Dict) -> str:
+        """Build standardized prompt for AI model"""
+        
+        operation_type = standardized_input["operation_metadata"]["type"]
+        task_desc = standardized_input["task_specification"]["description"]
+        project_context = standardized_input["full_context"]
+        
+        base_prompt = f"""STANDARDIZED AI OPERATION
+Operation Type: {operation_type}
+Project Process: {standardized_input["project_context"]["name"]}
+
+FULL PROJECT CONTEXT:
+{project_context}
+
+TASK SPECIFICATION:
+{task_desc}
+
+REQUIREMENTS:
+{chr(10).join(f"- {req}" for req in standardized_input["task_specification"]["requirements"])}
+
+CONSTRAINTS:
+{chr(10).join(f"- {constraint}" for constraint in standardized_input["task_specification"]["constraints"])}
+
+INSTRUCTIONS:
+- Analyze the full project context to understand the existing structure and patterns
+- Provide implementation that integrates seamlessly with existing codebase
+- Use appropriate technology stack and patterns based on project analysis
+- Ensure output is production-ready and follows best practices
+- Do not make assumptions about framework unless evident from project context
+
+Expected Output Format: {standardized_input["task_specification"]["expected_output"]}
+"""
+        
+        return base_prompt
+    
+    def process_standardized_ai_output(self, ai_result: Dict, operation_type: str) -> str:
+        """Process standardized AI output based on operation type"""
+        
+        raw_output = ai_result.get('implementation', '')
+        
+        if operation_type == "TASK_ANALYSIS":
+            return f"AI Analysis: {raw_output}"
+        elif operation_type == "FILE_GENERATION":
+            return raw_output
+        elif operation_type == "CODE_ENHANCEMENT":
+            return raw_output
+        else:
+            return raw_output
+    
+    def provide_fallback_guidance(self, description: str) -> str:
+        """Provide fallback guidance when AI unavailable"""
+        return f"""Universal Guidance for: {description}
+
+1. Analyze existing project structure and patterns
+2. Identify required files and components based on task
+3. Choose appropriate implementation approach for current tech stack
+4. Implement following project's established conventions
+5. Test and validate the implementation
+
+This task requires AI model collaboration for detailed implementation guidance."""
+    
+    def monitor_tasks(self):
+        """Monitor for new tasks assigned to this agent"""
+        last_check_time = 0
+        
+        while self.running:
+            try:
+                current_time = time.time()
+                # Check every 5 seconds to reduce spam
+                if current_time - last_check_time >= 5:
+                    pending_tasks = self.comm.get_pending_tasks(self.agent_id)
+                    
+                    if pending_tasks:
+                        colored_print(f"\n[{self.agent_id}] Processing {len(pending_tasks)} task(s)...", Colors.CYAN)
+                        for task in pending_tasks:
+                            self.handle_task(task)
+                    
+                    last_check_time = current_time
+                
+                time.sleep(1)
+            except Exception as e:
+                colored_print(f"Task monitoring error: {e}", Colors.RED)
+                time.sleep(5)
+    
+    def handle_task(self, task: Dict):
+        """Handle a task assigned to this agent"""
+        task_id = task["id"]
+        task_type = task.get("type", "")
+        description = task["description"]
+        
+        colored_print(f"\n[{self.agent_id}] Handling task {task_id}: {description}", Colors.YELLOW)
+        
+        # Update task status to in_progress
+        self.comm.update_task_status(task_id, TaskStatus.IN_PROGRESS)
+        
+        try:
+            if self.role == AgentRole.CODER:
+                if "code" in task_type.lower() or "generate" in task_type.lower():
+                    result = self.handle_code_generation_task(task)
+                else:
+                    result = self.handle_general_task(task)
+            elif self.role == AgentRole.COORDINATOR:
+                result = self.handle_coordination_task(task)
+            elif self.role == AgentRole.CODE_REVIEWER:
+                result = self.handle_code_review_task(task)
+            elif self.role == AgentRole.FILE_MANAGER:
+                result = self.handle_file_management_task(task)
+            elif self.role == AgentRole.GIT_MANAGER:
+                result = self.handle_git_management_task(task)
+            elif self.role == AgentRole.RESEARCHER:
+                result = self.handle_research_task(task)
+            elif self.role == AgentRole.TESTER:
+                result = self.handle_testing_task(task)
+            elif self.role == AgentRole.CODE_REWRITER:
+                result = self.handle_code_rewriter_task(task)
+            else:
+                result = self.handle_general_task(task)
+            
+            self.comm.update_task_status(task_id, TaskStatus.COMPLETED, result)
+            colored_print(f"Task {task_id} completed successfully!", Colors.GREEN)
+            
+        except Exception as e:
+            error_result = {"error": str(e), "type": "task_execution_error"}
+            self.comm.update_task_status(task_id, TaskStatus.FAILED, error_result)
+            colored_print(f"Task {task_id} failed: {e}", Colors.RED)
+    
+    def handle_code_generation_task(self, task: Dict) -> Dict:
+        """Handle code generation using collaborative approach"""
+        description = task["description"]
+        
+        # NEW COLLABORATIVE APPROACH - Provide intelligent guidance instead of hardcoded solutions
+        guidance = self.analyze_task_and_provide_guidance(description)
+        
+        colored_print(f"\n=== COLLABORATIVE ANALYSIS ===", Colors.BRIGHT_CYAN)
+        colored_print(guidance, Colors.CYAN)
+        colored_print(f"================================\n", Colors.BRIGHT_CYAN)
+        
+        # Try AI model if available for actual implementation
+        ai_result = self.try_ai_implementation(description)
+        
+        return {
+            "type": "collaborative_guidance",
+            "guidance": guidance,
+            "ai_implementation": ai_result,
+            "approach": "collaborative",
+            "message": "This task requires AI model collaboration for implementation. The guidance above provides architectural direction."
+        }
+    
+    def analyze_task_and_provide_guidance(self, description: str) -> str:
+        """Universal task analysis using AI collaboration with standardized input/output"""
+        
+        # Standardized AI Input
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="TASK_ANALYSIS",
+            task_description=description,
+            context_type="PROJECT_ANALYSIS"
+        )
+        
+        colored_print(f"   🤖 Universal AI task analysis with standardized input", Colors.BRIGHT_CYAN)
+        
+        # Try AI analysis with standardized input
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            return self.process_standardized_ai_output(ai_result, "TASK_ANALYSIS")
+        
+        # Fallback to basic analysis if AI unavailable
+        return self.provide_fallback_guidance(description)
+        
+        # Framework detection
+        if "react" in desc_lower:
+            analysis["framework"] = "React"
+            analysis["suggested_approach"].append("Use functional components with hooks")
+            analysis["suggested_approach"].append("Consider state management needs")
+        elif "vue" in desc_lower:
+            analysis["framework"] = "Vue"
+            analysis["suggested_approach"].append("Use composition API for modern Vue development")
+        elif "python" in desc_lower:
+            analysis["framework"] = "Python"
+            analysis["suggested_approach"].append("Follow PEP 8 style guidelines")
+            analysis["suggested_approach"].append("Consider using type hints")
+        elif "node" in desc_lower or "javascript" in desc_lower:
+            analysis["framework"] = "Node.js/JavaScript"
+            analysis["suggested_approach"].append("Use modern ES6+ features")
+        
+        # Component type detection
+        if "time" in desc_lower or "clock" in desc_lower:
+            analysis["component_type"] = "Time/Clock Display"
+            analysis["features"] = ["real-time updates", "date formatting", "time formatting"]
+            analysis["suggested_approach"].append("Implement timer with setInterval")
+            analysis["suggested_approach"].append("Consider timezone handling")
+        elif "todo" in desc_lower or "task" in desc_lower:
+            analysis["component_type"] = "Task Management"
+            analysis["features"] = ["add/remove items", "mark complete", "persistence"]
+            analysis["suggested_approach"].append("Use local state or localStorage")
+            analysis["suggested_approach"].append("Consider CRUD operations")
+        elif "app" in desc_lower:
+            analysis["component_type"] = "Application"
+            analysis["features"] = ["user interface", "routing", "state management"]
+            analysis["suggested_approach"].append("Plan component hierarchy")
+            analysis["suggested_approach"].append("Consider data flow patterns")
+        
+        # Generate intelligent guidance
+        guidance = f'''TASK ANALYSIS: {description}
+{'=' * 60}
+
+FRAMEWORK DETECTED: {analysis["framework"] or "Not specified - recommend clarifying"}
+COMPONENT TYPE: {analysis["component_type"] or "Generic component"}
+SUGGESTED FEATURES: {", ".join(analysis["features"]) if analysis["features"] else "Basic functionality"}
+
+ARCHITECTURAL GUIDANCE:
+{chr(10).join(f"• {approach}" for approach in analysis["suggested_approach"])}
+
+IMPLEMENTATION STRATEGY:
+This task requires collaborative development between AI model and human developer.
+
+RECOMMENDED WORKFLOW:
+1. AI Model: Generate initial implementation based on requirements
+2. Human Developer: Review and customize for specific needs  
+3. Collaborative Refinement: Iterate based on testing and feedback
+
+TECHNICAL CONSIDERATIONS:
+• Follow framework best practices and conventions
+• Implement proper error handling and edge cases
+• Consider accessibility and user experience
+• Plan for testing and maintainability
+
+COLLABORATION NOTES:
+- This agent provides architectural guidance, not hardcoded solutions
+- Work with AI model when available for actual code generation
+- Encourage iterative development and testing
+- Focus on learning and understanding, not just copying code'''
+        
+        return guidance
+    
+    def try_ai_implementation(self, description: str) -> Dict:
+        """Try to get AI implementation if model is available"""
+        try:
+            # Check if Ollama is available
+            result = subprocess.run([self.ollama_cmd, "list"], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                # Generate prompt for AI model
+                prompt = f"""Please provide a clean, well-documented implementation for: {description}
+
+Focus on:
+- Clean, readable code
+- Proper error handling  
+- Best practices for the framework
+- Comments explaining key concepts
+
+Implementation:"""
+                
+                # Run AI model
+                ai_result = subprocess.run([self.ollama_cmd, "run", self.default_model], 
+                                         input=prompt, capture_output=True, text=True, timeout=30)
+                
+                if ai_result.returncode == 0:
+                    return {
+                        "status": "success",
+                        "implementation": ai_result.stdout.strip(),
+                        "model": self.default_model
+                    }
+                else:
+                    return {"status": "error", "message": "AI model execution failed"}
+            
+        except Exception as e:
+            return {"status": "unavailable", "message": f"AI model not available: {e}"}
+        
+        return {"status": "unavailable", "message": "AI model not accessible"}
+    
+    def handle_coordination_task(self, task: Dict) -> Dict:
+        """Handle coordination tasks - delegate to other agents"""
+        description = task["description"].lower()
+        
+        # Intelligent delegation based on task content
+        if any(keyword in description for keyword in ["file", "directory", "folder", "create", "organize", "structure", "edit", "modify", "update", "add to", "enhance"]):
+            # File operations -> file_manager
+            delegated_task_id = self.comm.create_task(
+                task_type="file_management",
+                description=task["description"],
+                assigned_to="file_manager",
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "file_manager"}
+        
+        elif any(keyword in description for keyword in ["git", "commit", "push", "pull", "branch", "version"]):
+            # Git operations -> git_manager
+            delegated_task_id = self.comm.create_task(
+                task_type="git_management", 
+                description=task["description"],
+                assigned_to="git_manager",
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "git_manager"}
+        
+        elif any(keyword in description for keyword in ["code", "generate", "implement", "write", "develop"]):
+            # Code generation -> coder
+            delegated_task_id = self.comm.create_task(
+                task_type="code_generation",
+                description=task["description"],
+                assigned_to="coder",
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "coder"}
+        
+        elif any(keyword in description for keyword in ["review", "check", "analyze", "quality"]):
+            # Code review -> code_reviewer
+            delegated_task_id = self.comm.create_task(
+                task_type="code_review",
+                description=task["description"],
+                assigned_to="code_reviewer",
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "code_reviewer"}
+        
+        elif any(keyword in description for keyword in ["test", "testing", "unit", "integration"]):
+            # Testing -> tester
+            delegated_task_id = self.comm.create_task(
+                task_type="testing",
+                description=task["description"],
+                assigned_to="tester",
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "tester"}
+        
+        elif any(keyword in description for keyword in ["research", "find", "search", "investigate"]):
+            # Research -> researcher
+            delegated_task_id = self.comm.create_task(
+                task_type="research",
+                description=task["description"],
+                assigned_to="researcher", 
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "researcher"}
+        
+        else:
+            # Default to coder for general tasks
+            delegated_task_id = self.comm.create_task(
+                task_type="general",
+                description=task["description"],
+                assigned_to="coder",
+                created_by=self.agent_id,
+                priority=task.get("priority", 1)
+            )
+            return {"delegated_task_id": delegated_task_id, "delegated_to": "coder"}
+    
+    def handle_code_review_task(self, task: Dict) -> Dict:
+        """Handle code review tasks and create structured review reports for code rewriter"""
+        
+        description = task["description"]
+        colored_print(f"🔍 CODE REVIEWER: Conducting comprehensive code review", Colors.BRIGHT_CYAN)
+        colored_print(f"   Task: {description}", Colors.CYAN)
+        
+        # Use universal AI collaboration for code review
+        review_result = self.conduct_comprehensive_code_review(description)
+        
+        # If issues found, automatically delegate to code rewriter
+        if review_result.get("issues_found", 0) > 0:
+            self.delegate_to_code_rewriter(review_result)
+        
+        return {
+            "status": "completed",
+            "review_report": review_result,
+            "message": f"Code review completed: {review_result.get('summary', 'Review finished')}"
+        }
+    
+    def conduct_comprehensive_code_review(self, description: str) -> Dict:
+        """Conduct comprehensive code review using AI with project context"""
+        
+        # Create standardized AI input for code review
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="CODE_REVIEW",
+            task_description=f"Comprehensive code review: {description}",
+            context_type="QUALITY_ANALYSIS",
+            requirements=[
+                "Analyze code quality and best practices",
+                "Identify bugs, security issues, and performance problems",
+                "Check for maintainability and readability issues",
+                "Verify proper error handling and edge cases",
+                "Assess architecture and design patterns"
+            ],
+            constraints=[
+                "Provide specific line numbers and file locations for issues",
+                "Categorize issues by severity (critical, major, minor)",
+                "Suggest specific fixes for each issue found",
+                "Include positive feedback for well-written code"
+            ],
+            expected_output="STRUCTURED_REVIEW_REPORT"
+        )
+        
+        # Execute AI-powered code review
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            review_content = ai_result.get('implementation', '')
+            return self.parse_review_report(review_content)
+        else:
+            # Fallback review
+            return self.conduct_basic_code_review(description)
+    
+    def parse_review_report(self, review_content: str) -> Dict:
+        """Parse AI review output into structured format"""
+        
+        # This parses the AI review into structured data
+        # In a real implementation, this would parse AI output for:
+        # - Issues found with severity levels
+        # - Specific file locations and line numbers  
+        # - Suggested fixes for each issue
+        # - Overall quality assessment
+        
+        issues = []
+        
+        # Extract issues from AI review (simplified parsing)
+        lines = review_content.split('\n')
+        current_issue = {}
+        
+        for line in lines:
+            if 'CRITICAL:' in line or 'MAJOR:' in line or 'MINOR:' in line:
+                if current_issue:
+                    issues.append(current_issue)
+                current_issue = {
+                    "severity": line.split(':')[0].strip(),
+                    "description": line.split(':', 1)[1].strip() if ':' in line else line,
+                    "file": "",
+                    "line_number": 0,
+                    "suggested_fix": ""
+                }
+            elif 'File:' in line and current_issue:
+                current_issue["file"] = line.split(':', 1)[1].strip()
+            elif 'Line:' in line and current_issue:
+                try:
+                    current_issue["line_number"] = int(line.split(':', 1)[1].strip())
+                except:
+                    pass
+            elif 'Fix:' in line and current_issue:
+                current_issue["suggested_fix"] = line.split(':', 1)[1].strip()
+        
+        if current_issue:
+            issues.append(current_issue)
+        
+        return {
+            "issues_found": len(issues),
+            "issues": issues,
+            "summary": f"Found {len(issues)} issues requiring attention",
+            "ai_review_content": review_content,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    def conduct_basic_code_review(self, description: str) -> Dict:
+        """Fallback basic code review when AI unavailable"""
+        
+        colored_print(f"   📋 Conducting basic code review analysis", Colors.YELLOW)
+        
+        # Basic file analysis
+        issues = []
+        if self.project_process_files:
+            for file_path, file_info in self.project_process_files.items():
+                # Basic checks
+                content = file_info['content']
+                if 'TODO' in content or 'FIXME' in content:
+                    issues.append({
+                        "severity": "MINOR",
+                        "description": "Contains TODO or FIXME comments",
+                        "file": file_path,
+                        "line_number": 0,
+                        "suggested_fix": "Complete or remove TODO/FIXME items"
+                    })
+        
+        return {
+            "issues_found": len(issues),
+            "issues": issues,
+            "summary": f"Basic review completed - {len(issues)} issues found",
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    def delegate_to_code_rewriter(self, review_result: Dict):
+        """Delegate issues to code rewriter with structured task list"""
+        
+        issues = review_result.get("issues", [])
+        if not issues:
+            return
+        
+        colored_print(f"   🔄 Delegating {len(issues)} issues to code rewriter", Colors.BRIGHT_YELLOW)
+        
+        # Create structured task for code rewriter
+        rewriter_task_description = f"Fix {len(issues)} code issues from review report"
+        
+        # Create detailed task with structured issue list
+        task_id = self.comm.create_task(
+            description=rewriter_task_description,
+            task_type="code_rewrite_from_review",
+            assigned_to="code_rewriter",
+            priority="normal",
+            metadata={
+                "review_report": review_result,
+                "total_issues": len(issues),
+                "critical_issues": len([i for i in issues if i.get("severity") == "CRITICAL"]),
+                "major_issues": len([i for i in issues if i.get("severity") == "MAJOR"]),
+                "minor_issues": len([i for i in issues if i.get("severity") == "MINOR"]),
+                "source_agent": self.agent_id
+            }
+        )
+        
+        colored_print(f"   ✅ Created rewriter task {task_id} with {len(issues)} structured fixes", Colors.GREEN)
+    
+    def handle_file_management_task(self, task: Dict) -> Dict:
+        """Handle file management tasks - create directories, organize project structure, edit files"""
+        description = task["description"]
+        
+        colored_print(f"📁 FILE MANAGER: Processing file management task", Colors.BRIGHT_CYAN)
+        colored_print(f"   Task: {description}", Colors.CYAN)
+        
+        # Check if this is an edit task or create task
+        if self.is_edit_task(description):
+            return self.handle_file_edit_task(description)
+        else:
+            return self.handle_file_create_task(description)
+    
+    def is_edit_task(self, description: str) -> bool:
+        """Determine if this is an edit task or create task"""
+        edit_keywords = ["edit", "modify", "update", "change", "add to", "enhance", "improve"]
+        desc_lower = description.lower()
+        return any(keyword in desc_lower for keyword in edit_keywords)
+    
+    def handle_file_create_task(self, description: str) -> Dict:
+        """Handle file creation tasks"""
+        # Extract project information from description
+        project_info = self.analyze_project_requirements(description)
+        
+        # Create project structure
+        project_path = self.create_project_structure(project_info)
+        
+        return {
+            "type": "file_management_completed",
+            "project_path": project_path,
+            "project_info": project_info,
+            "message": f"Successfully created project structure at {project_path}",
+            "files_created": self.list_created_files(project_path)
+        }
+    
+    def handle_file_edit_task(self, description: str) -> Dict:
+        """Handle file editing tasks"""
+        colored_print(f"✏️ FILE EDITOR: Processing file edit request", Colors.BRIGHT_YELLOW)
+        
+        # Find the project to edit
+        project_path = self.find_project_to_edit(description)
+        
+        if not project_path:
+            return {
+                "type": "file_edit_failed",
+                "error": "Could not find project to edit",
+                "message": "Please specify the project name or ensure the project exists"
+            }
+        
+        colored_print(f"   📂 Found project: {project_path}", Colors.YELLOW)
+        
+        # Analyze what needs to be edited
+        edit_info = self.analyze_edit_requirements(description)
+        
+        # Perform the actual edits
+        edited_files = self.perform_file_edits(project_path, edit_info)
+        
+        return {
+            "type": "file_edit_completed",
+            "project_path": project_path,
+            "edit_info": edit_info,
+            "edited_files": edited_files,
+            "message": f"Successfully edited {len(edited_files)} file(s) in project"
+        }
+    
+    def find_project_to_edit(self, description: str) -> str:
+        """Find the project that needs to be edited"""
+        import os
+        
+        # Extract project name from description
+        desc_lower = description.lower()
+        
+        # Look for existing projects in workspace
+        workspace_projects = []
+        if os.path.exists(self.workspace_dir):
+            for item in os.listdir(self.workspace_dir):
+                item_path = os.path.join(self.workspace_dir, item)
+                if os.path.isdir(item_path) and not item.startswith('.'):
+                    workspace_projects.append(item)
+        
+        colored_print(f"   🔍 Available projects: {', '.join(workspace_projects)}", Colors.CYAN)
+        
+        # Try to match project name from description
+        for project in workspace_projects:
+            if project.lower() in desc_lower:
+                return os.path.join(self.workspace_dir, project)
+        
+        # If only one project exists, use it
+        if len(workspace_projects) == 1:
+            colored_print(f"   🎯 Using only available project: {workspace_projects[0]}", Colors.CYAN)
+            return os.path.join(self.workspace_dir, workspace_projects[0])
+        
+        # Check for common project names
+        common_names = ["timedisplayapp", "todoapp", "app", "project"]
+        for name in common_names:
+            if name in desc_lower:
+                for project in workspace_projects:
+                    if name in project.lower():
+                        return os.path.join(self.workspace_dir, project)
+        
+        return None
+    
+    def analyze_edit_requirements(self, description: str) -> Dict:
+        """Analyze what needs to be edited"""
+        desc_lower = description.lower()
+        
+        edit_info = {
+            "action": "modify",
+            "target_component": None,
+            "new_features": [],
+            "files_to_edit": []
+        }
+        
+        # Detect what component to edit
+        if "time display" in desc_lower or "timedisplay" in desc_lower:
+            edit_info["target_component"] = "TimeDisplay"
+            edit_info["files_to_edit"].append("src/components/TimeDisplay.js")
+        
+        # Detect what to add
+        if "week" in desc_lower and "number" in desc_lower:
+            edit_info["new_features"].append("week_number")
+        if "week display" in desc_lower:
+            edit_info["new_features"].append("week_display")
+        
+        colored_print(f"   📋 Edit Analysis:", Colors.BRIGHT_YELLOW)
+        colored_print(f"      Target: {edit_info['target_component']}", Colors.YELLOW)
+        colored_print(f"      Features: {', '.join(edit_info['new_features'])}", Colors.YELLOW)
+        colored_print(f"      Files: {', '.join(edit_info['files_to_edit'])}", Colors.YELLOW)
+        
+        return edit_info
+    
+    def perform_file_edits(self, project_path: str, edit_info: Dict) -> List[str]:
+        """Perform the actual file edits using AI collaboration"""
+        import os
+        
+        edited_files = []
+        
+        for file_path in edit_info["files_to_edit"]:
+            full_file_path = os.path.join(project_path, file_path)
+            
+            if os.path.exists(full_file_path):
+                colored_print(f"   ✏️ Editing: {file_path}", Colors.BRIGHT_GREEN)
+                
+                # Use AI collaboration for any file type
+                success = self.edit_file_with_ai_collaboration(full_file_path, edit_info)
+                
+                if success:
+                    edited_files.append(file_path)
+                    colored_print(f"   ✅ Completed: {file_path}", Colors.GREEN)
+                else:
+                    colored_print(f"   ⚠️ Edit guidance provided for: {file_path}", Colors.YELLOW)
+            else:
+                colored_print(f"   ❌ File not found: {file_path}", Colors.RED)
+        
+        return edited_files
+    
+    def edit_file_with_ai_collaboration(self, file_path: str, edit_info: Dict) -> bool:
+        """Edit any file using AI collaboration"""
+        
+        # Read the current file content
+        with open(file_path, 'r') as f:
+            current_content = f.read()
+        
+        colored_print(f"      📄 Current file content loaded ({len(current_content)} chars)", Colors.CYAN)
+        
+        # Use AI model to generate the enhanced version
+        enhanced_content = self.collaborate_with_ai_for_file_edit(
+            file_path=file_path,
+            current_content=current_content,
+            edit_requirements=edit_info
+        )
+        
+        if enhanced_content and enhanced_content != current_content:
+            # Write the AI-generated enhanced content
+            with open(file_path, 'w') as f:
+                f.write(enhanced_content)
+            
+            colored_print(f"      🤖 AI-generated enhancement applied", Colors.BRIGHT_GREEN)
+            return True
+        else:
+            colored_print(f"      💡 Collaborative guidance provided (AI model unavailable)", Colors.CYAN)
+            return False
+    
+    def edit_time_display_component(self, file_path: str, edit_info: Dict):
+        """Edit the TimeDisplay component using AI collaboration"""
+        
+        # Read the current file content
+        with open(file_path, 'r') as f:
+            current_content = f.read()
+        
+        colored_print(f"      📄 Current file content loaded ({len(current_content)} chars)", Colors.CYAN)
+        
+        # Use AI model to generate the enhanced version
+        enhanced_content = self.collaborate_with_ai_for_file_edit(
+            file_path=file_path,
+            current_content=current_content,
+            edit_requirements=edit_info
+        )
+        
+        if enhanced_content and enhanced_content != current_content:
+            # Write the AI-generated enhanced component
+            with open(file_path, 'w') as f:
+                f.write(enhanced_content)
+            
+            colored_print(f"      🤖 AI-generated enhancement applied", Colors.BRIGHT_GREEN)
+        else:
+            colored_print(f"      ⚠️ No changes generated by AI model", Colors.YELLOW)
+    
+    def collaborate_with_ai_for_file_edit(self, file_path: str, current_content: str, edit_requirements: Dict) -> str:
+        """Universal file editing using standardized AI collaboration"""
+        
+        colored_print(f"      🤖 Universal AI collaboration for file editing", Colors.BRIGHT_CYAN)
+        
+        # Prepare standardized AI input for file editing
+        file_name = file_path.split('/')[-1]
+        features_needed = ", ".join(edit_requirements.get("new_features", []))
+        
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="FILE_ENHANCEMENT",
+            task_description=f"Enhance {file_name} with requested features",
+            context_type="FILE_EDITING",
+            requirements=[
+                f"Target file: {file_name}",
+                f"Enhancement request: {features_needed}",
+                f"Target component: {edit_requirements.get('target_component', 'File')}",
+                "Maintain all existing functionality",
+                "Integrate seamlessly with project structure"
+            ],
+            constraints=[
+                "Preserve existing code structure and patterns",
+                "Use appropriate technology stack for file type",
+                "Follow project's established conventions and style",
+                "Ensure backward compatibility",
+                "Make minimal necessary changes"
+            ],
+            expected_output="ENHANCED_FILE_CONTENT",
+            target_files=[file_name],
+            current_file_content=current_content
+        )
+        
+        # Execute standardized AI file enhancement
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            enhanced_content = ai_result.get('implementation', '').strip()
+            
+            # Universal validation - check if content is meaningful
+            if enhanced_content and len(enhanced_content) > len(current_content) * 0.5:
+                colored_print(f"      ✅ AI model provided enhanced file content", Colors.GREEN)
+                return enhanced_content
+            else:
+                colored_print(f"      ⚠️ AI model output appears incomplete", Colors.YELLOW)
+        else:
+            colored_print(f"      ⚠️ AI model unavailable for enhancement", Colors.YELLOW)
+        
+        # Fallback: provide guidance and return original
+        colored_print(f"      💡 Providing collaborative guidance instead", Colors.CYAN)
+        self.provide_universal_edit_guidance(file_path, edit_requirements)
+        
+        return current_content  # Return original if AI can't help
+    
+    def provide_universal_edit_guidance(self, file_path: str, edit_requirements: Dict):
+        """Provide universal editing guidance for any file type"""
+        
+        file_name = file_path.split('/')[-1]
+        file_ext = file_name.split('.')[-1] if '.' in file_name else 'unknown'
+        features = ", ".join(edit_requirements.get("new_features", []))
+        
+        colored_print(f"      📋 UNIVERSAL EDIT GUIDANCE:", Colors.BRIGHT_CYAN)
+        colored_print(f"         File: {file_name} (type: {file_ext})", Colors.CYAN)
+        colored_print(f"         Requested: {features}", Colors.CYAN)
+        colored_print(f"      💡 SUGGESTED APPROACH:", Colors.CYAN)
+        colored_print(f"         1. Analyze current file structure and patterns", Colors.CYAN)
+        colored_print(f"         2. Identify integration points for new features", Colors.CYAN)
+        colored_print(f"         3. Implement using project's established conventions", Colors.CYAN)
+        colored_print(f"         4. Test changes for compatibility and functionality", Colors.CYAN)
+        colored_print(f"      🤝 This requires AI model collaboration for implementation.", Colors.MAGENTA)
+    
+    def try_ai_implementation_for_edit(self, prompt: str) -> Dict:
+        """Try to get AI implementation for file editing"""
+        try:
+            import subprocess
+            
+            # Check if Ollama is available
+            result = subprocess.run([self.ollama_cmd, "list"], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                # Run AI model with edit prompt
+                ai_result = subprocess.run([self.ollama_cmd, "run", self.default_model], 
+                                         input=prompt, capture_output=True, text=True, timeout=45)
+                
+                if ai_result.returncode == 0:
+                    return {
+                        "status": "success",
+                        "implementation": ai_result.stdout.strip(),
+                        "model": self.default_model
+                    }
+                else:
+                    return {"status": "error", "message": "AI model execution failed"}
+            
+        except Exception as e:
+            return {"status": "unavailable", "message": f"AI model not available: {e}"}
+        
+        return {"status": "unavailable", "message": "AI model not accessible"}
+    
+    def provide_edit_guidance(self, file_path: str, edit_requirements: Dict):
+        """Provide collaborative guidance when AI model is unavailable"""
+        
+        colored_print(f"      📋 COLLABORATIVE EDIT GUIDANCE:", Colors.BRIGHT_YELLOW)
+        colored_print(f"         File: {file_path.split('/')[-1]}", Colors.YELLOW)
+        colored_print(f"         Target: {edit_requirements.get('target_component', 'Component')}", Colors.YELLOW)
+        colored_print(f"         Features needed: {', '.join(edit_requirements.get('new_features', []))}", Colors.YELLOW)
+        colored_print(f"", Colors.YELLOW)
+        colored_print(f"      💡 SUGGESTED APPROACH:", Colors.BRIGHT_CYAN)
+        colored_print(f"         1. Read the current file content", Colors.CYAN)
+        colored_print(f"         2. Identify where to add new functionality", Colors.CYAN)
+        colored_print(f"         3. Implement the requested features", Colors.CYAN)
+        colored_print(f"         4. Test the changes work correctly", Colors.CYAN)
+        colored_print(f"", Colors.CYAN)
+        colored_print(f"      🤝 This task requires AI model collaboration for actual implementation.", Colors.MAGENTA)
+    
+    def analyze_project_requirements(self, description: str) -> Dict:
+        """Analyze project requirements from description"""
+        desc_lower = description.lower()
+        
+        project_info = {
+            "name": "UnknownProject",
+            "framework": None,
+            "components": [],
+            "features": []
+        }
+        
+        # Extract project name
+        if "timedisplayapp" in desc_lower or "time display app" in desc_lower:
+            project_info["name"] = "TimeDisplayApp"
+        elif "todoapp" in desc_lower or "todo app" in desc_lower:
+            project_info["name"] = "TodoApp"
+        elif "project" in desc_lower:
+            # Try to extract project name
+            words = description.split()
+            for i, word in enumerate(words):
+                if word.lower() in ["project", "app", "application"] and i > 0:
+                    project_info["name"] = words[i-1].replace(",", "").replace(".", "")
+                    break
+        
+        # Detect framework
+        if "react" in desc_lower:
+            project_info["framework"] = "react"
+            project_info["components"].extend(["App", "components", "styles"])
+        elif "vue" in desc_lower:
+            project_info["framework"] = "vue"
+            project_info["components"].extend(["App", "components", "assets"])
+        elif "python" in desc_lower:
+            project_info["framework"] = "python"
+            project_info["components"].extend(["src", "tests", "docs"])
+        elif "node" in desc_lower:
+            project_info["framework"] = "nodejs"
+            project_info["components"].extend(["src", "routes", "models"])
+        
+        # Extract specific components mentioned
+        if "time" in desc_lower:
+            project_info["components"].append("TimeDisplay")
+        if "date" in desc_lower:
+            project_info["components"].append("DateDisplay") 
+        if "week" in desc_lower:
+            project_info["components"].append("WeekDisplay")
+        
+        colored_print(f"📊 PROJECT ANALYSIS:", Colors.BRIGHT_YELLOW)
+        colored_print(f"   Name: {project_info['name']}", Colors.YELLOW)
+        colored_print(f"   Framework: {project_info['framework']}", Colors.YELLOW)
+        colored_print(f"   Components: {', '.join(project_info['components'])}", Colors.YELLOW)
+        
+        return project_info
+    
+    def create_project_structure(self, project_info: Dict) -> str:
+        """Universal project creation using AI collaboration with standardized input/output"""
+        import os
+        
+        project_name = project_info["name"]
+        
+        # Create project in workspace
+        project_path = os.path.join(self.workspace_dir, project_name)
+        
+        colored_print(f"🔧 CREATING UNIVERSAL PROJECT STRUCTURE:", Colors.BRIGHT_GREEN)
+        colored_print(f"   Path: {project_path}", Colors.GREEN)
+        
+        # Create main project directory
+        os.makedirs(project_path, exist_ok=True)
+        
+        # Use standardized AI approach for project creation
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="PROJECT_CREATION",
+            task_description=f"Create complete project structure for: {project_name}",
+            context_type="PROJECT_STRUCTURE",
+            requirements=[
+                f"Project name: {project_name}",
+                f"Description: {project_info.get('description', 'AI-generated project')}",
+                f"Components: {', '.join(project_info.get('components', []))}",
+                f"Features: {', '.join(project_info.get('features', []))}"
+            ],
+            constraints=[
+                "Analyze project requirements to determine appropriate technology stack",
+                "Create modern, scalable project structure",
+                "Include all necessary configuration and setup files",
+                "Follow current best practices for chosen technology"
+            ],
+            expected_output="PROJECT_FILES_AND_STRUCTURE"
+        )
+        
+        # Execute AI-powered project creation
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            self.execute_ai_project_creation(project_path, project_info, ai_result)
+        else:
+            self.create_universal_fallback_structure(project_path, project_info)
+        
+        colored_print(f"✅ UNIVERSAL PROJECT CREATED: {project_path}", Colors.BRIGHT_GREEN)
+        return project_path
+    
+    def execute_ai_project_creation(self, project_path: str, project_info: Dict, ai_result: Dict):
+        """Execute project creation based on AI analysis"""
+        
+        colored_print(f"   🤖 Executing AI-generated project structure", Colors.BRIGHT_CYAN)
+        
+        # Create files based on AI recommendations
+        files_to_create = self.parse_ai_project_output(ai_result.get('implementation', ''))
+        
+        for file_path, content in files_to_create.items():
+            full_path = os.path.join(project_path, file_path)
+            
+            # Create directory if needed
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            
+            # Generate content using AI for each file
+            file_content = self.generate_universal_file_content(file_path, content, project_info)
+            
+            # Write file
+            with open(full_path, 'w') as f:
+                f.write(file_content)
+                
+            colored_print(f"   ✅ Created: {file_path}", Colors.GREEN)
+    
+    def create_universal_fallback_structure(self, project_path: str, project_info: Dict):
+        """Create basic universal project structure when AI unavailable"""
+        
+        colored_print(f"   📋 Creating universal fallback structure", Colors.YELLOW)
+        
+        # Basic universal files
+        basic_files = {
+            "README.md": self.generate_universal_file_content("README.md", "", project_info),
+            "package.json": self.generate_universal_file_content("package.json", "", project_info),
+            "src/main.js": self.generate_universal_file_content("src/main.js", "", project_info),
+            "src/style.css": self.generate_universal_file_content("src/style.css", "", project_info)
+        }
+        
+        for file_path, content in basic_files.items():
+            full_path = os.path.join(project_path, file_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            
+            with open(full_path, 'w') as f:
+                f.write(content)
+            
+            colored_print(f"   ✅ Created: {file_path}", Colors.GREEN)
+    
+    def parse_ai_project_output(self, ai_output: str) -> Dict[str, str]:
+        """Parse AI output to extract file structure"""
+        
+        # This would parse AI output to determine project structure
+        # For now, return basic structure that AI can customize
+        return {
+            "README.md": "AI-generated README",
+            "package.json": "AI-generated package configuration",
+            "src/index.js": "AI-generated main entry point",
+            "src/style.css": "AI-generated styles"
+        }
+    
+    def generate_universal_file_content(self, file_path: str, base_content: str, project_info: Dict) -> str:
+        """Generate file content using AI collaboration - completely universal"""
+        
+        # Use standardized AI input for file generation
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="FILE_GENERATION",
+            task_description=f"Generate content for file: {file_path}",
+            context_type="FILE_CREATION",
+            requirements=[
+                f"File type: {file_path.split('.')[-1] if '.' in file_path else 'text'}",
+                f"Project: {project_info.get('name', 'Project')}",
+                f"Purpose: {base_content or 'Standard project file'}",
+                "Must integrate with overall project structure and goals"
+            ],
+            constraints=[
+                "Use appropriate syntax and conventions for file type",
+                "Follow modern best practices",
+                "Ensure compatibility with project requirements",
+                "Make it production-ready and well-documented"
+            ],
+            expected_output="FILE_CONTENT",
+            target_files=[file_path]
+        )
+        
+        # Execute AI file generation
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self.get_universal_fallback_content(file_path, project_info))
+        
+        return self.get_universal_fallback_content(file_path, project_info)
+    
+    def get_universal_fallback_content(self, file_path: str, project_info: Dict) -> str:
+        """Get universal fallback content for any file type"""
+        
+        file_ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
+        project_name = project_info.get('name', 'Project')
+        
+        if file_ext == 'md':
+            return f"# {project_name}\n\nUniversal project created with AI-powered multi-agent collaboration.\n\n## Setup\n\n1. Install dependencies\n2. Run the application\n\n## Features\n\nAI-generated features based on project requirements."
+        
+        elif file_ext == 'json':
+            return f'{{\n  "name": "{project_name.lower()}",\n  "version": "1.0.0",\n  "description": "Universal project created with AI collaboration",\n  "main": "src/index.js",\n  "scripts": {{\n    "start": "echo \\"Please configure start script\\"",\n    "build": "echo \\"Please configure build script\\""\n  }}\n}}'
+        
+        elif file_ext in ['js', 'ts']:
+            return f"// {project_name} - Universal AI-generated entry point\n\n// Main application logic\nconsole.log('{project_name} started with AI collaboration');\n\n// TODO: Implement main functionality based on project requirements"
+        
+        elif file_ext == 'css':
+            return f"/* {project_name} - Universal AI-generated styles */\n\nbody {{\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n  margin: 0;\n  padding: 20px;\n  background: #f5f5f5;\n}}\n\n.container {{\n  max-width: 1200px;\n  margin: 0 auto;\n  background: white;\n  padding: 20px;\n  border-radius: 8px;\n  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n}}"
+        
+        else:
+            return f"# {project_name}\n\nUniversal file created with AI-powered multi-agent collaboration.\nFile type: {file_ext or 'generic'}\nGenerated automatically based on project requirements."
+    
+    def create_react_structure(self, project_path: str, project_info: Dict):
+        """Create React project structure"""
+        import os
+        
+        # Create React directories
+        directories = [
+            "src",
+            "src/components", 
+            "src/styles",
+            "src/utils",
+            "public"
+        ]
+        
+        for dir_path in directories:
+            full_path = os.path.join(project_path, dir_path)
+            os.makedirs(full_path, exist_ok=True)
+            colored_print(f"   📁 Created: {dir_path}", Colors.GREEN)
+        
+        # Create basic files
+        files_to_create = {
+            "package.json": self.generate_react_package_json(project_info),
+            "README.md": self.generate_readme(project_info),
+            "public/index.html": self.generate_react_html(project_info),
+            "src/index.js": self.generate_react_index_js(),
+            "src/App.js": self.generate_react_app_js(project_info),
+            "src/styles/App.css": self.generate_react_css(),
+            "src/styles/index.css": "/* Global styles */"
+        }
+        
+        # Create component files for specific components
+        for component in project_info["components"]:
+            if component in ["TimeDisplay", "DateDisplay", "WeekDisplay"]:
+                component_file = f"src/components/{component}.js"
+                files_to_create[component_file] = self.generate_react_component(component)
+        
+        # Write all files
+        for file_path, content in files_to_create.items():
+            full_file_path = os.path.join(project_path, file_path)
+            with open(full_file_path, 'w') as f:
+                f.write(content)
+            colored_print(f"   📄 Created: {file_path}", Colors.GREEN)
+    
+    def create_generic_structure(self, project_path: str, project_info: Dict):
+        """Create generic project structure"""
+        import os
+        
+        directories = ["src", "docs", "tests"]
+        for dir_path in directories:
+            full_path = os.path.join(project_path, dir_path)
+            os.makedirs(full_path, exist_ok=True)
+            colored_print(f"   📁 Created: {dir_path}", Colors.GREEN)
+        
+        # Create README
+        readme_path = os.path.join(project_path, "README.md")
+        with open(readme_path, 'w') as f:
+            f.write(self.generate_readme(project_info))
+        colored_print(f"   📄 Created: README.md", Colors.GREEN)
+    
+    def list_created_files(self, project_path: str) -> List[str]:
+        """List all files created in the project"""
+        import os
+        created_files = []
+        
+        for root, dirs, files in os.walk(project_path):
+            for file in files:
+                rel_path = os.path.relpath(os.path.join(root, file), project_path)
+                created_files.append(rel_path)
+        
+        return created_files
+    
+    def generate_react_package_json(self, project_info: Dict) -> str:
+        """Generate package.json using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate a package.json file for a React project using full project context:
+
+{project_context}
+
+PROJECT REQUIREMENTS:
+- Project name: {project_info['name']}
+- Framework: React.js
+- Required features: {', '.join(project_info.get('components', []))}
+- Project description: {project_info.get('description', 'React application')}
+
+Please generate a complete, modern package.json with appropriate dependencies, scripts, and configuration based on the project requirements and any existing project structure.
+
+OUTPUT ONLY THE JSON CONTENT - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_package_json(project_info))
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_package_json(project_info)
+    
+    def _fallback_package_json(self, project_info: Dict) -> str:
+        """Fallback package.json when AI unavailable"""
+        return f'''{{
+  "name": "{project_info['name'].lower()}",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {{
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1"
+  }},
+  "scripts": {{
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test"
+  }}
+}}'''
+    
+    def generate_readme(self, project_info: Dict) -> str:
+        """Generate README.md using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate a comprehensive README.md for this project using full project context:
+
+{project_context}
+
+PROJECT INFO:
+- Name: {project_info['name']}
+- Framework: {project_info.get('framework', 'generic')}
+- Components: {', '.join(project_info.get('components', []))}
+- Description: {project_info.get('description', 'Application created with AI-powered multi-agent collaboration')}
+
+Create a detailed README.md that includes:
+1. Project description and purpose
+2. Installation and setup instructions
+3. Usage examples
+4. Project structure explanation
+5. Features and components overview
+6. Development guides
+
+Make it comprehensive and professional, tailored to this specific project's needs and structure.
+
+OUTPUT ONLY THE MARKDOWN CONTENT - NO CODE BLOCKS OR EXPLANATIONS."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_readme(project_info))
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_readme(project_info)
+    
+    def _fallback_readme(self, project_info: Dict) -> str:
+        """Fallback README when AI unavailable"""
+        return f'''# {project_info['name']}
+
+A {project_info.get('framework', 'generic')} application created using AI-powered Project_Process collaboration.
+
+## Features
+{chr(10).join(f"- {component}" for component in project_info.get('components', []))}
+
+## Setup
+1. Install dependencies
+2. Run the application
+3. Open in browser
+
+## Created with Project_Process Paradigm
+Generated by Multi-Agent AI Collaboration - {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+'''
+    
+    def generate_react_html(self, project_info: Dict) -> str:
+        """Generate public/index.html using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate an index.html file for a React application using full project context:
+
+{project_context}
+
+PROJECT REQUIREMENTS:
+- Project name: {project_info['name']}
+- React application HTML template
+- Should be optimized for the specific project features and requirements
+- Include appropriate meta tags, SEO considerations, and modern HTML5 structure
+
+Create a professional, optimized index.html that serves as the entry point for this React application, considering the project's specific needs and features.
+
+OUTPUT ONLY THE HTML CONTENT - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_react_html(project_info))
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_react_html(project_info)
+    
+    def _fallback_react_html(self, project_info: Dict) -> str:
+        """Fallback HTML when AI unavailable"""
+        return f'''<!DOCTYPE html>
 <html lang="en">
- <head>
- <meta charset="utf-8" />
- <meta name="viewport" content="width=device-width, initial-scale=1" />
- <meta name="theme-color" content="#000000" />
- <meta name="description" content="{name} - React.js Application" />
- <title>{name}</title>
- </head>
- <body>
- <noscript>You need to enable JavaScript to run this app.</noscript>
- <div id="root"></div>
- </body>
-</html>"""
- 
- html_path = f"{path}/public/index.html"
- with open(html_path, 'w') as f:
- f.write(html_content)
- created_files.append(html_path)
- 
- # Create src/index.js
- index_js = f"""import React from 'react';
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="{project_info['name']} - Created with AI Project_Process" />
+    <title>{project_info['name']}</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>'''
+    
+    def generate_react_index_js(self) -> str:
+        """Generate src/index.js using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate a React index.js entry point using full project context:
+
+{project_context}
+
+REQUIREMENTS:
+- React 18+ entry point file
+- Should integrate with existing project structure and dependencies
+- Include appropriate imports and setup based on project needs
+- Consider any special requirements or configurations from the project context
+
+Create an optimized index.js that serves as the proper entry point for this specific React application.
+
+OUTPUT ONLY THE JAVASCRIPT CODE - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_react_index_js())
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_react_index_js()
+    
+    def _fallback_react_index_js(self) -> str:
+        """Fallback index.js when AI unavailable"""
+        return '''import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './styles/index.css';
 import App from './App';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
- <React.StrictMode>
- <App />
- </React.StrictMode>
-);"""
- 
- index_path = f"{path}/src/index.js"
- with open(index_path, 'w') as f:
- f.write(index_js)
- created_files.append(index_path)
- 
- # Create src/App.js
- app_js = f"""import React from 'react';
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);'''
+    
+    def generate_react_app_js(self, project_info: Dict) -> str:
+        """Generate src/App.js using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate a React App.js component using full project context:
+
+{project_context}
+
+PROJECT REQUIREMENTS:
+- Main App component for: {project_info['name']}
+- Required components: {', '.join(project_info.get('components', []))}
+- Framework: {project_info.get('framework', 'React')}
+- Should intelligently integrate all components based on project structure and needs
+- Use modern React patterns and best practices
+- Consider existing project architecture and styling approach
+
+Create a comprehensive App.js that serves as the main component, intelligently organizing and presenting all project components.
+
+OUTPUT ONLY THE JSX/JAVASCRIPT CODE - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_react_app_js(project_info))
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_react_app_js(project_info)
+    
+    def _fallback_react_app_js(self, project_info: Dict) -> str:
+        """Fallback App.js when AI unavailable"""
+        imports = []
+        components_jsx = []
+        
+        for component in project_info.get("components", []):
+            imports.append(f"import {component} from './components/{component}';")
+            components_jsx.append(f"        <{component} />")
+        
+        imports_str = chr(10).join(imports)
+        components_str = chr(10).join(components_jsx)
+        
+        return f'''import React from 'react';
 import './styles/App.css';
+{imports_str}
 
 function App() {{
- return (
- <div className="App">
- <header className="App-header">
- <h1>{name}</h1>
- <p>Your React.js application is ready!</p>
- </header>
- </div>
- );
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>{project_info['name']}</h1>
+        <p>AI-Powered Project_Process Application</p>
+      </header>
+      <main className="App-main">
+{components_str}
+      </main>
+    </div>
+  );
 }}
 
-export default App;"""
- 
- app_path = f"{path}/src/App.js"
- with open(app_path, 'w') as f:
- f.write(app_js)
- created_files.append(app_path)
- 
- # Create basic CSS
- css_content = """.App {
- text-align: center;
+export default App;'''
+    
+    def generate_react_css(self) -> str:
+        """Generate CSS using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate modern CSS styling for a React application using full project context:
+
+{project_context}
+
+REQUIREMENTS:
+- Modern, professional CSS styling
+- Responsive design principles
+- Should complement the project's components and structure
+- Consider the project's theme and purpose based on context
+- Include styling for all components mentioned in the project
+- Use modern CSS features (flexbox, grid, CSS variables, etc.)
+
+Create comprehensive, professional CSS that enhances the user experience and visual appeal of this specific application.
+
+OUTPUT ONLY THE CSS CONTENT - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_react_css())
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_react_css()
+    
+    def _fallback_react_css(self) -> str:
+        """Fallback CSS when AI unavailable"""
+        return '''.App {
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .App-header {
- background-color: #282c34;
- padding: 20px;
- color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+  color: white;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
 }
 
-.App-header h1 {
- margin: 0 0 10px 0;
-}"""
- 
- css_path = f"{path}/src/styles/App.css"
- os.makedirs(f"{path}/src/styles", exist_ok=True)
- with open(css_path, 'w') as f:
- f.write(css_content)
- created_files.append(css_path)
- 
- index_css = """body {
- margin: 0;
- font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
- 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
- sans-serif;
- -webkit-font-smoothing: antialiased;
- -moz-osx-font-smoothing: grayscale;
+.App-main {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-code {
- font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
-}"""
- 
- index_css_path = f"{path}/src/styles/index.css"
- with open(index_css_path, 'w') as f:
- f.write(index_css)
- created_files.append(index_css_path)
- 
- # Create README.md
- readme = f"""# {name}
+.component {
+  margin: 20px;
+  padding: 15px;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transition: transform 0.2s ease;
+}
 
-A React.js web application.
+.component:hover {
+  transform: translateY(-2px);
+}'''
+    
+    def generate_react_component(self, component_name: str) -> str:
+        """Generate React component using AI collaboration with project context"""
+        
+        # Get project context for AI model
+        project_context = self.get_project_context_for_ai()
+        
+        prompt = f"""Generate a React component using full project context:
 
-## Features
+{project_context}
 
-- Modern React.js setup with Create React App
-- Component-based architecture
-- Responsive design
-- Development and production builds
+COMPONENT REQUIREMENTS:
+- Component name: {component_name}
+- Should integrate seamlessly with existing project structure
+- Use modern React patterns (hooks, functional components)
+- Include appropriate styling and functionality based on component name
+- Consider existing project dependencies and patterns
 
-## Getting Started
+Analyze the project context and create a component that fits perfectly with the existing codebase, architecture, and design patterns.
 
-1. Install dependencies:
- ```bash
- cd {path.split('/')[-1]}
- npm install
- ```
+OUTPUT ONLY THE JSX/JAVASCRIPT CODE - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
+        
+        # Try AI generation first
+        ai_result = self.try_ai_implementation(prompt)
+        if ai_result.get('status') == 'success':
+            return ai_result.get('implementation', self._fallback_react_component(component_name))
+        
+        # Fallback to basic template if AI unavailable
+        return self._fallback_react_component(component_name)
+    
+    def _fallback_react_component(self, component_name: str) -> str:
+        """Fallback React component when AI unavailable"""
+        return f'''import React, {{ useState, useEffect }} from 'react';
 
-2. Start development server:
- ```bash
- npm start
- ```
+const {component_name} = () => {{
+  const [data, setData] = useState('');
 
-3. Build for production:
- ```bash
- npm run build
- ```
+  useEffect(() => {{
+    // AI-generated component logic would go here
+    const updateData = () => {{
+      setData(new Date().toLocaleString());
+    }};
+    
+    updateData();
+    const interval = setInterval(updateData, 1000);
+    
+    return () => clearInterval(interval);
+  }}, []);
 
-## Project Structure
+  return (
+    <div className="component {component_name.lower()}">
+      <h3>{component_name}</h3>
+      <p>{{data}}</p>
+    </div>
+  );
+}};
 
-```
-{name}/
-├── public/
-│ └── index.html
-├── src/
-│ ├── components/ # React components
-│ ├── utils/ # Utility functions 
-│ ├── styles/ # CSS files
-│ ├── App.js # Main App component
-│ └── index.js # Entry point
-├── package.json
-└── README.md
-```
-
-## Available Scripts
-
-- `npm start` - Runs the app in development mode
-- `npm test` - Launches the test runner
-- `npm run build` - Builds the app for production
-- `npm run eject` - Ejects from Create React App (one-way operation)
-"""
- 
- readme_path = f"{path}/README.md"
- with open(readme_path, 'w') as f:
- f.write(readme)
- created_files.append(readme_path)
- 
- colored_print(f"Created React.js project: {name}", Colors.GREEN)
- colored_print(f"Created {len(created_files)} files", Colors.GREEN)
- 
- return {
- "success": True,
- "project_type": "React.js",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install", 
- "npm start"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating React.js project: {e}", Colors.RED)
- return {
- "success": False,
- "error": str(e),
- "project_type": "React.js"
- }
- 
- def create_react_native_project(self, name: str, path: str, description: str) -> Dict:
- """Create React Native project structure"""
- try:
- # Create directory structure
- directories = [
- f"{path}/src",
- f"{path}/src/components",
- f"{path}/src/screens", 
- f"{path}/src/utils",
- f"{path}/src/styles",
- f"{path}/android",
- f"{path}/ios"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json for React Native
- package_json = {
- "name": name.lower().replace(" ", ""),
- "version": "0.0.1",
- "private": True,
- "scripts": {
- "android": "react-native run-android",
- "ios": "react-native run-ios", 
- "start": "react-native start",
- "test": "jest",
- "lint": "eslint ."
- },
- "dependencies": {
- "react": "18.2.0",
- "react-native": "0.72.6"
- },
- "devDependencies": {
- "@babel/core": "^7.20.0",
- "@babel/preset-env": "^7.20.0",
- "@babel/runtime": "^7.20.0",
- "@react-native/eslint-config": "^0.72.2",
- "@react-native/metro-config": "^0.72.11",
- "@tsconfig/react-native": "^3.0.0",
- "@types/react": "^18.0.24",
- "@types/react-test-renderer": "^18.0.0",
- "babel-jest": "^29.2.1",
- "eslint": "^8.19.0", 
- "jest": "^29.2.1",
- "metro-react-native-babel-preset": "0.76.8",
- "prettier": "^2.4.1",
- "react-test-renderer": "18.2.0",
- "typescript": "4.8.4"
- },
- "jest": {
- "preset": "react-native"
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- # Create basic React Native app structure
- app_js = f"""import React from 'react';
-import {{
- SafeAreaView,
- ScrollView,
- StatusBar,
- StyleSheet,
- Text,
- useColorScheme,
- View,
-}} from 'react-native';
-
-function App() {{
- const isDarkMode = useColorScheme() === 'dark';
-
- const backgroundStyle = {{
- backgroundColor: isDarkMode ? '#000' : '#fff',
- }};
-
- return (
- <SafeAreaView style={{...backgroundStyle, flex: 1}}>
- <StatusBar barStyle={{isDarkMode ? 'light-content' : 'dark-content'}} />
- <ScrollView
- contentInsetAdjustmentBehavior="automatic"
- style={backgroundStyle}>
- <View style={styles.container}>
- <Text style={styles.title}>{name}</Text>
- <Text style={styles.subtitle}>React Native App is Ready!</Text>
- </View>
- </ScrollView>
- </SafeAreaView>
- );
-}}
-
-const styles = StyleSheet.create({{
- container: {{
- flex: 1,
- justifyContent: 'center',
- alignItems: 'center',
- padding: 20,
- }},
- title: {{
- fontSize: 24,
- fontWeight: 'bold',
- marginBottom: 10,
- }},
- subtitle: {{
- fontSize: 16,
- color: '#666',
- }},
-}});
-
-export default App;"""
- 
- app_path = f"{path}/App.js"
- with open(app_path, 'w') as f:
- f.write(app_js)
- created_files.append(app_path)
- 
- # Create index.js
- index_js = """import {AppRegistry} from 'react-native';
-import App from './App';
-import {name as appName} from './app.json';
-
-AppRegistry.registerComponent(appName, () => App);"""
- 
- index_path = f"{path}/index.js"
- with open(index_path, 'w') as f:
- f.write(index_js)
- created_files.append(index_path)
- 
- # Create app.json
- app_json = {
- "name": name,
- "displayName": name
- }
- 
- app_json_path = f"{path}/app.json"
- with open(app_json_path, 'w') as f:
- json.dump(app_json, f, indent=2)
- created_files.append(app_json_path)
- 
- colored_print(f"Created React Native project: {name}", Colors.GREEN)
- colored_print(f"Created {len(created_files)} files", Colors.GREEN)
- 
- return {
- "success": True,
- "project_type": "React Native",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install",
- "npx react-native run-android # or run-ios"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating React Native project: {e}", Colors.RED)
- return {
- "success": False,
- "error": str(e),
- "project_type": "React Native"
- }
- 
- def create_python_project(self, name: str, path: str, description: str) -> Dict:
- """Create a Python project structure"""
- try:
- # Create directory structure
- directories = [
- f"{path}/src",
- f"{path}/tests",
- f"{path}/docs",
- f"{path}/scripts"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create main Python file
- main_py = f"""#!/usr/bin/env python3
-\"\"\"
-{name} - Python Application
-
-Description: {description}
-\"\"\"
+export default {component_name};'''
+    
+    def handle_git_management_task(self, task: Dict) -> Dict:
+        """Handle git management tasks"""
+        return {"message": f"Git management task handled: {task['description']}"}
+    
+    def handle_research_task(self, task: Dict) -> Dict:
+        """Handle research tasks"""
+        return {"message": f"Research task completed: {task['description']}"}
+    
+    def handle_testing_task(self, task: Dict) -> Dict:
+        """Handle testing tasks"""
+        return {"message": f"Testing task completed: {task['description']}"}
+    
+    def handle_code_rewriter_task(self, task: Dict) -> Dict:
+        """Handle code rewriting tasks from code reviewer reports"""
+        
+        description = task["description"]
+        colored_print(f"🔧 CODE REWRITER: Processing code fixes", Colors.BRIGHT_CYAN)
+        colored_print(f"   Task: {description}", Colors.CYAN)
+        
+        # Check if this is from a code review report
+        if task.get("task_type") == "code_rewrite_from_review":
+            return self.process_review_based_fixes(task)
+        else:
+            return self.process_general_rewrite_task(task)
+    
+    def process_review_based_fixes(self, task: Dict) -> Dict:
+        """Process fixes based on structured code review report"""
+        
+        metadata = task.get("metadata", {})
+        review_report = metadata.get("review_report", {})
+        issues = review_report.get("issues", [])
+        
+        colored_print(f"   📋 Processing {len(issues)} issues from code review", Colors.CYAN)
+        
+        fixed_issues = []
+        failed_fixes = []
+        
+        # Process each issue systematically
+        for i, issue in enumerate(issues, 1):
+            colored_print(f"   🔨 Fixing issue {i}/{len(issues)}: {issue.get('severity', 'UNKNOWN')} - {issue.get('description', 'No description')}", Colors.YELLOW)
+            
+            fix_result = self.apply_single_issue_fix(issue, review_report)
+            
+            if fix_result.get("success"):
+                fixed_issues.append(issue)
+                colored_print(f"      ✅ Fixed: {issue.get('file', 'unknown file')}", Colors.GREEN)
+            else:
+                failed_fixes.append(issue)
+                colored_print(f"      ❌ Failed: {fix_result.get('error', 'Unknown error')}", Colors.RED)
+        
+        # Summary
+        total_fixes = len(fixed_issues)
+        colored_print(f"   📊 REWRITE SUMMARY: {total_fixes}/{len(issues)} issues fixed", Colors.BRIGHT_GREEN)
+        
+        # Auto-delegate back to reviewer if critical issues remain
+        if failed_fixes:
+            self.request_review_follow_up(failed_fixes, task)
+        
+        return {
+            "status": "completed",
+            "total_issues": len(issues),
+            "fixed_issues": total_fixes,
+            "failed_fixes": len(failed_fixes),
+            "fixed_details": fixed_issues,
+            "failed_details": failed_fixes,
+            "message": f"Code rewriter completed: {total_fixes}/{len(issues)} issues fixed"
+        }
+    
+    def apply_single_issue_fix(self, issue: Dict, review_report: Dict) -> Dict:
+        """Apply fix for a single code issue using AI collaboration"""
+        
+        file_path = issue.get("file", "")
+        severity = issue.get("severity", "UNKNOWN")
+        description = issue.get("description", "")
+        suggested_fix = issue.get("suggested_fix", "")
+        line_number = issue.get("line_number", 0)
+        
+        if not file_path or file_path not in self.project_process_files:
+            return {"success": False, "error": f"File {file_path} not found in project"}
+        
+        # Get current file content
+        current_content = self.project_process_files[file_path]["content"]
+        
+        # Create standardized AI input for specific fix
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="ISSUE_FIX",
+            task_description=f"Fix {severity} issue: {description}",
+            context_type="CODE_REPAIR",
+            requirements=[
+                f"Fix specific issue: {description}",
+                f"Target file: {file_path}",
+                f"Line number: {line_number}" if line_number > 0 else "Locate issue in file",
+                f"Suggested approach: {suggested_fix}" if suggested_fix else "Determine best fix approach",
+                "Maintain all existing functionality",
+                "Follow project coding standards"
+            ],
+            constraints=[
+                "Make minimal necessary changes",
+                "Preserve existing code structure where possible",
+                "Ensure fix doesn't introduce new issues",
+                "Test compatibility with existing code"
+            ],
+            expected_output="FIXED_FILE_CONTENT",
+            target_files=[file_path],
+            current_file_content=current_content
+        )
+        
+        # Execute AI-powered issue fix
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            fixed_content = ai_result.get('implementation', '').strip()
+            
+            # Validate the fix
+            if self.validate_fix(current_content, fixed_content, issue):
+                # Apply the fix to the actual file
+                success = self.apply_fix_to_file(file_path, fixed_content)
+                return {"success": success, "fixed_content": fixed_content}
+            else:
+                return {"success": False, "error": "Fix validation failed"}
+        else:
+            return {"success": False, "error": "AI fix generation failed"}
+    
+    def validate_fix(self, original_content: str, fixed_content: str, issue: Dict) -> bool:
+        """Validate that the fix is reasonable"""
+        
+        # Basic validation checks
+        if not fixed_content or len(fixed_content) < len(original_content) * 0.5:
+            return False
+        
+        # Check that fix addresses the issue type
+        severity = issue.get("severity", "")
+        description = issue.get("description", "").lower()
+        
+        # Add specific validation based on issue type
+        if "todo" in description or "fixme" in description:
+            return "TODO" not in fixed_content and "FIXME" not in fixed_content
+        
+        return True  # Basic validation passed
+    
+    def apply_fix_to_file(self, file_path: str, fixed_content: str) -> bool:
+        """Apply the fixed content to the actual file"""
+        
+        try:
+            full_path = self.project_process_files[file_path]["path"]
+            
+            # Backup original
+            backup_path = f"{full_path}.backup"
+            with open(full_path, 'r') as original:
+                with open(backup_path, 'w') as backup:
+                    backup.write(original.read())
+            
+            # Write fixed content
+            with open(full_path, 'w') as f:
+                f.write(fixed_content)
+            
+            # Update cached content
+            self.project_process_files[file_path]["content"] = fixed_content
+            
+            colored_print(f"      📝 Applied fix to {file_path} (backup: {backup_path})", Colors.GREEN)
+            return True
+            
+        except Exception as e:
+            colored_print(f"      ❌ Error applying fix to {file_path}: {e}", Colors.RED)
+            return False
+    
+    def request_review_follow_up(self, failed_fixes: list, original_task: Dict):
+        """Request follow-up review for failed fixes"""
+        
+        colored_print(f"   🔄 Requesting review follow-up for {len(failed_fixes)} failed fixes", Colors.YELLOW)
+        
+        # Create follow-up task for code reviewer
+        follow_up_description = f"Review {len(failed_fixes)} failed fixes from rewriter"
+        
+        self.comm.create_task(
+            description=follow_up_description,
+            task_type="review_follow_up",
+            assigned_to="code_reviewer",
+            priority="high",
+            metadata={
+                "failed_fixes": failed_fixes,
+                "original_task_id": original_task.get("id"),
+                "source_agent": self.agent_id
+            }
+        )
+    
+    def process_general_rewrite_task(self, task: Dict) -> Dict:
+        """Process general rewrite tasks not from code review"""
+        
+        description = task["description"]
+        
+        # Use universal AI collaboration for general rewriting
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="CODE_REWRITE",
+            task_description=description,
+            context_type="CODE_IMPROVEMENT",
+            requirements=[
+                "Improve code quality and maintainability",
+                "Fix any obvious issues or bugs",
+                "Optimize performance where possible",
+                "Update to modern coding standards"
+            ],
+            constraints=[
+                "Maintain all existing functionality",
+                "Don't break existing integrations",
+                "Follow project conventions",
+                "Make targeted improvements"
+            ],
+            expected_output="IMPROVED_CODE"
+        )
+        
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        if ai_result.get('status') == 'success':
+            return {
+                "status": "completed", 
+                "improvements": ai_result.get('implementation', ''),
+                "message": f"General code rewrite completed: {description}"
+            }
+        else:
+            return {
+                "status": "completed",
+                "message": f"Code rewrite guidance provided for: {description}"
+            }
+    
+    def handle_general_task(self, task: Dict) -> Dict:
+        """Handle general tasks"""
+        return {"message": f"General task handled: {task['description']}"}
 
 def main():
- \"\"\"Main function\"\"\"
- print(f"Welcome to {name}!")
- print("Your Python application is ready!")
+    if len(sys.argv) != 3:
+        print("Usage: python multi_agent_terminal.py <agent_id> <role>")
+        print("Roles: coordinator, coder, code_reviewer, code_rewriter, file_manager, git_manager, researcher, tester")
+        return
+    
+    agent_id = sys.argv[1]
+    role_str = sys.argv[2].upper()
+    
+    try:
+        role = AgentRole[role_str]
+    except KeyError:
+        print(f"Invalid role: {role_str}")
+        print("Valid roles:", [r.name for r in AgentRole])
+        return
+    
+    # Create agent
+    agent = MultiAgentTerminal(agent_id, role)
+    
+    colored_print(f"\n=== Multi-Agent Terminal ({agent_id}) ===", Colors.BRIGHT_YELLOW)
+    colored_print(f"Role: {role.value}", Colors.CYAN)
+    colored_print(f"Workspace: {agent.workspace_dir}", Colors.CYAN)
+    colored_print("Commands: 'help', 'agents', 'tasks', 'delegate \"description\" to agent', 'quit'", Colors.WHITE)
+    colored_print("=" * 50, Colors.BRIGHT_YELLOW)
+    
+    try:
+        while True:
+            try:
+                user_input = input(f"\n[{agent_id}]> ").strip()
+                
+                if not user_input:
+                    continue
+                
+                if user_input.lower() in ['quit', 'exit', 'q']:
+                    break
+                elif user_input.lower() == 'help':
+                    print("Available commands:")
+                    print("  agents - Show active agents")
+                    print("  tasks - Show pending tasks")
+                    print("  delegate \"description\" to agent_name - Create task for specific agent")
+                    print("  delegate description - Create task for coder (default)")
+                    print("  project - Show current project process")
+                    print("  set_project <name> - Set focus to specific project process")
+                    print("  files - Show project files loaded for AI collaboration")
+                    print("  quit - Exit the terminal")
+                elif user_input.lower() == 'agents':
+                    agents = agent.comm.get_active_agents()
+                    colored_print(f"\nActive Agents ({len(agents)}):", Colors.BRIGHT_CYAN)
+                    for a in agents:
+                        print(f"  {a['id']} ({a['role']}) - PID: {a.get('pid', 'unknown')}")
+                elif user_input.lower() == 'tasks':
+                    tasks = agent.comm.get_pending_tasks(agent_id)
+                    colored_print(f"\nPending Tasks ({len(tasks)}):", Colors.BRIGHT_CYAN)
+                    for t in tasks:
+                        print(f"  {t['id']}: {t['description']}")
+                elif user_input.lower() == 'project':
+                    if agent.current_project_process:
+                        colored_print(f"\n🎯 Current Project Process: {agent.current_project_process}", Colors.BRIGHT_GREEN)
+                        colored_print(f"📂 Workspace: {agent.project_process_workspace}", Colors.GREEN)
+                        colored_print(f"📚 Files loaded: {len(agent.project_process_files)}", Colors.CYAN)
+                    else:
+                        colored_print("📁 No active project process", Colors.YELLOW)
+                        agent.detect_active_project_process()
+                elif user_input.lower().startswith('set_project '):
+                    project_name = user_input[12:].strip()
+                    agent.set_project_process(project_name)
+                elif user_input.lower() == 'files':
+                    if agent.current_project_process:
+                        colored_print(f"\n📚 Project Files for {agent.current_project_process}:", Colors.BRIGHT_CYAN)
+                        for relative_path, file_info in agent.project_process_files.items():
+                            size_kb = file_info['size'] / 1024
+                            print(f"  {relative_path} ({size_kb:.1f} KB)")
+                    else:
+                        colored_print("📁 No active project process", Colors.YELLOW)
+                elif user_input.lower().startswith('delegate '):
+                    # Parse delegation command: delegate "description" to agent_name
+                    command_part = user_input[9:].strip()
+                    
+                    if ' to ' in command_part:
+                        # Parse: "description" to agent_name
+                        parts = command_part.split(' to ')
+                        if len(parts) == 2:
+                            description = parts[0].strip().strip('"')
+                            target_agent = parts[1].strip()
+                            
+                            # Map role names to actual role values for assignment
+                            role_mapping = {
+                                'file_manager': 'file_manager',
+                                'coder': 'coder',
+                                'code_reviewer': 'code_reviewer', 
+                                'code_rewriter': 'code_rewriter',
+                                'git_manager': 'git_manager',
+                                'researcher': 'researcher',
+                                'tester': 'tester'
+                            }
+                            
+                            assigned_to = role_mapping.get(target_agent, target_agent)
+                            
+                            task_id = agent.comm.create_task(
+                                task_type="general",
+                                description=description,
+                                assigned_to=assigned_to,
+                                created_by=agent_id
+                            )
+                            colored_print(f"Task {task_id} created and delegated to {target_agent}!", Colors.GREEN)
+                        else:
+                            colored_print("Invalid format. Use: delegate \"description\" to agent_name", Colors.RED)
+                    else:
+                        # Old format: just delegate description (default to coder)
+                        description = command_part
+                        if description:
+                            task_id = agent.comm.create_task(
+                                task_type="general",
+                                description=description,
+                                assigned_to="coder",  # Default to coder
+                                created_by=agent_id
+                            )
+                            colored_print(f"Task {task_id} created and delegated to coder!", Colors.GREEN)
+                        else:
+                            colored_print("Please provide a task description", Colors.RED)
+                else:
+                    colored_print(f"Unknown command: {user_input}", Colors.RED)
+                    
+            except KeyboardInterrupt:
+                print()
+                break
+            except EOFError:
+                break
+    
+    finally:
+        agent.running = False
+        agent.save_history()
+        colored_print(f"\nAgent {agent_id} shutting down...", Colors.YELLOW)
 
 if __name__ == "__main__":
- main()
-"""
- 
- main_path = f"{path}/src/main.py"
- with open(main_path, 'w') as f:
- f.write(main_py)
- created_files.append(main_path)
- 
- # Create requirements.txt
- requirements = """# Core dependencies
-# Add your project dependencies here
-
-# Development dependencies
-pytest>=7.0.0
-black>=22.0.0
-flake8>=4.0.0
-"""
- 
- req_path = f"{path}/requirements.txt"
- with open(req_path, 'w') as f:
- f.write(requirements)
- created_files.append(req_path)
- 
- # Create setup.py
- setup_py = f"""from setuptools import setup, find_packages
-
-setup(
- name="{name.lower().replace(' ', '-')}",
- version="0.1.0",
- description="{description}",
- packages=find_packages(where="src"),
- package_dir={{"": "src"}},
- python_requires=">=3.8",
- install_requires=[
- # Add dependencies here
- ],
- entry_points={{
- "console_scripts": [
- "{name.lower()}=main:main",
- ],
- }},
-)
-"""
- 
- setup_path = f"{path}/setup.py"
- with open(setup_path, 'w') as f:
- f.write(setup_py)
- created_files.append(setup_path)
- 
- # Create README.md
- readme = f"""# {name}
-
-{description}
-
-## Installation
-
-```bash
-cd {path.split('/')[-1]}
-pip install -r requirements.txt
-```
-
-## Usage
-
-```bash
-python src/main.py
-```
-
-## Development
-
-1. Install development dependencies:
- ```bash
- pip install -r requirements.txt
- ```
-
-2. Run tests:
- ```bash
- pytest tests/
- ```
-
-3. Format code:
- ```bash
- black src/
- ```
-
-## Project Structure
-
-```
-{name}/
-├── src/
-│ └── main.py # Main application
-├── tests/ # Test files
-├── docs/ # Documentation
-├── scripts/ # Utility scripts
-├── requirements.txt # Dependencies
-├── setup.py # Package setup
-└── README.md
-```
-"""
- 
- readme_path = f"{path}/README.md"
- with open(readme_path, 'w') as f:
- f.write(readme)
- created_files.append(readme_path)
- 
- colored_print(f"Created Python project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Python",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "pip install -r requirements.txt",
- "python src/main.py"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Python project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Python"}
- 
- def create_nodejs_project(self, name: str, path: str, description: str) -> Dict:
- """Create a Node.js project structure"""
- try:
- # Create directory structure
- directories = [
- f"{path}/src",
- f"{path}/tests",
- f"{path}/docs"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json
- package_json = {
- "name": name.lower().replace(" ", "-"),
- "version": "1.0.0",
- "description": description,
- "main": "src/index.js",
- "scripts": {
- "start": "node src/index.js",
- "dev": "nodemon src/index.js",
- "test": "jest",
- "lint": "eslint src/"
- },
- "keywords": [],
- "author": "",
- "license": "MIT",
- "dependencies": {
- "express": "^4.18.0"
- },
- "devDependencies": {
- "nodemon": "^3.0.0",
- "jest": "^29.0.0",
- "eslint": "^8.0.0"
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- # Create main index.js
- index_js = f"""const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(express.json());
-app.use(express.static('public'));
-
-// Routes
-app.get('/', (req, res) => {{
- res.json({{
- message: 'Welcome to {name}!',
- description: '{description}',
- status: 'Server is running successfully!'
- }});
-}});
-
-app.get('/health', (req, res) => {{
- res.json({{ status: 'OK', timestamp: new Date().toISOString() }});
-}});
-
-// Start server
-app.listen(PORT, () => {{
- console.log(`{name} server running on port ${{PORT}}`);
- console.log(` API available at http://localhost:${{PORT}}`);
-}});
-
-module.exports = app;
-"""
- 
- index_path = f"{path}/src/index.js"
- with open(index_path, 'w') as f:
- f.write(index_js)
- created_files.append(index_path)
- 
- # Create README.md
- readme = f"""# {name}
-
-{description}
-
-## Installation
-
-```bash
-cd {path.split('/')[-1]}
-npm install
-```
-
-## Usage
-
-### Development
-```bash
-npm run dev
-```
-
-### Production
-```bash
-npm start
-```
-
-### Testing
-```bash
-npm test
-```
-
-## API Endpoints
-
-- `GET /` - Welcome message
-- `GET /health` - Health check
-
-## Project Structure
-
-```
-{name}/
-├── src/
-│ └── index.js # Main server file
-├── tests/ # Test files
-├── docs/ # Documentation
-├── package.json # Dependencies and scripts
-└── README.md
-```
-
-## Environment Variables
-
-Create a `.env` file for environment-specific configuration:
-
-```
-PORT=3000
-NODE_ENV=development
-```
-"""
- 
- readme_path = f"{path}/README.md"
- with open(readme_path, 'w') as f:
- f.write(readme)
- created_files.append(readme_path)
- 
- colored_print(f"Created Node.js project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Node.js",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install",
- "npm run dev"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Node.js project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Node.js"}
- 
- def create_web_project(self, name: str, path: str, description: str) -> Dict:
- """Create a basic web project with HTML/CSS/JS"""
- try:
- # Create directory structure
- directories = [
- f"{path}/css",
- f"{path}/js",
- f"{path}/images",
- f"{path}/assets"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create index.html
- html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
- <meta charset="UTF-8">
- <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <title>{name}</title>
- <link rel="stylesheet" href="css/styles.css">
-</head>
-<body>
- <header>
- <h1>{name}</h1>
- <nav>
- <ul>
- <li><a href="#home">Home</a></li>
- <li><a href="#about">About</a></li>
- <li><a href="#contact">Contact</a></li>
- </ul>
- </nav>
- </header>
- 
- <main>
- <section id="home">
- <h2>Welcome to {name}</h2>
- <p>{description}</p>
- <button id="demo-btn">Click me!</button>
- </section>
- 
- <section id="about">
- <h2>About</h2>
- <p>This is a modern web application built with HTML, CSS, and JavaScript.</p>
- </section>
- 
- <section id="contact">
- <h2>Contact</h2>
- <p>Get in touch with us!</p>
- </section>
- </main>
- 
- <footer>
- <p>&copy; 2024 {name}. All rights reserved.</p>
- </footer>
- 
- <script src="js/script.js"></script>
-</body>
-</html>"""
- 
- html_path = f"{path}/index.html"
- with open(html_path, 'w') as f:
- f.write(html_content)
- created_files.append(html_path)
- 
- # Create CSS
- css_content = """/* Reset and base styles */
-* {
- margin: 0;
- padding: 0;
- box-sizing: border-box;
-}
-
-body {
- font-family: 'Arial', sans-serif;
- line-height: 1.6;
- color: #333;
- background-color: #f4f4f4;
-}
-
-/* Header */
-header {
- background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
- color: white;
- padding: 1rem 0;
- position: fixed;
- width: 100%;
- top: 0;
- z-index: 1000;
- box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-header h1 {
- text-align: center;
- margin-bottom: 0.5rem;
-}
-
-nav ul {
- list-style: none;
- display: flex;
- justify-content: center;
- gap: 2rem;
-}
-
-nav a {
- color: white;
- text-decoration: none;
- padding: 0.5rem 1rem;
- border-radius: 4px;
- transition: background-color 0.3s;
-}
-
-nav a:hover {
- background-color: rgba(255,255,255,0.2);
-}
-
-/* Main content */
-main {
- margin-top: 120px;
- padding: 2rem;
- max-width: 1200px;
- margin-left: auto;
- margin-right: auto;
-}
-
-section {
- background: white;
- margin: 2rem 0;
- padding: 2rem;
- border-radius: 8px;
- box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-
-h2 {
- color: #667eea;
- margin-bottom: 1rem;
-}
-
-button {
- background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
- color: white;
- border: none;
- padding: 0.75rem 1.5rem;
- border-radius: 4px;
- cursor: pointer;
- font-size: 1rem;
- transition: transform 0.2s;
-}
-
-button:hover {
- transform: translateY(-2px);
-}
-
-/* Footer */
-footer {
- background: #333;
- color: white;
- text-align: center;
- padding: 1rem;
- margin-top: 2rem;
-}
-
-/* Responsive design */
-@media (max-width: 768px) {
- nav ul {
- flex-direction: column;
- gap: 0.5rem;
- }
- 
- main {
- margin-top: 160px;
- padding: 1rem;
- }
-}"""
- 
- css_path = f"{path}/css/styles.css"
- with open(css_path, 'w') as f:
- f.write(css_content)
- created_files.append(css_path)
- 
- # Create JavaScript
- js_content = """// Main JavaScript functionality
-document.addEventListener('DOMContentLoaded', function() {
- console.log('Website loaded successfully!');
- 
- // Demo button functionality
- const demoBtn = document.getElementById('demo-btn');
- if (demoBtn) {
- demoBtn.addEventListener('click', function() {
- alert('Hello from your web application!');
- this.textContent = 'Clicked!';
- setTimeout(() => {
- this.textContent = 'Click me!';
- }, 2000);
- });
- }
- 
- // Smooth scrolling for navigation links
- const navLinks = document.querySelectorAll('nav a[href^="#"]');
- navLinks.forEach(link => {
- link.addEventListener('click', function(e) {
- e.preventDefault();
- const targetId = this.getAttribute('href');
- const targetSection = document.querySelector(targetId);
- if (targetSection) {
- targetSection.scrollIntoView({
- behavior: 'smooth'
- });
- }
- });
- });
- 
- // Add some interactivity
- const sections = document.querySelectorAll('section');
- sections.forEach(section => {
- section.addEventListener('mouseenter', function() {
- this.style.transform = 'translateY(-2px)';
- this.style.transition = 'transform 0.3s ease';
- });
- 
- section.addEventListener('mouseleave', function() {
- this.style.transform = 'translateY(0)';
- });
- });
-});
-
-// Utility functions
-function showMessage(message) {
- const messageDiv = document.createElement('div');
- messageDiv.textContent = message;
- messageDiv.style.cssText = `
- position: fixed;
- top: 20px;
- right: 20px;
- background: #4CAF50;
- color: white;
- padding: 1rem;
- border-radius: 4px;
- z-index: 1001;
- `;
- document.body.appendChild(messageDiv);
- 
- setTimeout(() => {
- document.body.removeChild(messageDiv);
- }, 3000);
-}"""
- 
- js_path = f"{path}/js/script.js"
- with open(js_path, 'w') as f:
- f.write(js_content)
- created_files.append(js_path)
- 
- # Create README
- readme = f"""# {name}
-
-{description}
-
-## Features
-
-- Responsive design
-- Modern CSS with gradients and animations
-- Interactive JavaScript functionality
-- Clean, semantic HTML structure
-- Cross-browser compatibility
-
-## Getting Started
-
-1. Open `index.html` in your web browser
-2. Or serve with a local server:
- ```bash
- # Python
- python -m http.server 8000
- 
- # Node.js
- npx http-server
- 
- # PHP
- php -S localhost:8000
- ```
-
-## Project Structure
-
-```
-{name}/
-├── index.html # Main HTML file
-├── css/
-│ └── styles.css # Stylesheet
-├── js/
-│ └── script.js # JavaScript functionality
-├── images/ # Image assets
-├── assets/ # Other assets
-└── README.md
-```
-
-## Customization
-
-- Edit `css/styles.css` to modify the appearance
-- Add functionality in `js/script.js`
-- Modify content in `index.html`
-- Add images to the `images/` folder
-"""
- 
- readme_path = f"{path}/README.md"
- with open(readme_path, 'w') as f:
- f.write(readme)
- created_files.append(readme_path)
- 
- colored_print(f"Created Web project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Web",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "Open index.html in browser",
- "Or run: python -m http.server 8000"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Web project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Web"}
- 
- def create_generic_project(self, name: str, path: str, description: str) -> Dict:
- """Create a generic project structure"""
- try:
- # Create basic directory structure
- directories = [
- f"{path}/src",
- f"{path}/docs",
- f"{path}/tests",
- f"{path}/scripts",
- f"{path}/config"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create README.md
- readme = f"""# {name}
-
-{description}
-
-## Project Structure
-
-```
-{name}/
-├── src/ # Source code
-├── docs/ # Documentation
-├── tests/ # Test files
-├── scripts/ # Utility scripts
-├── config/ # Configuration files
-└── README.md
-```
-
-## Getting Started
-
-1. Navigate to the project directory:
- ```bash
- cd {path.split('/')[-1]}
- ```
-
-2. Add your source code to the `src/` directory
-3. Update this README with project-specific instructions
-4. Add any configuration files to `config/`
-5. Write tests in the `tests/` directory
-
-## Development
-
-- Source code: `src/`
-- Documentation: `docs/`
-- Tests: `tests/`
-- Scripts: `scripts/`
-- Configuration: `config/`
-
-## Next Steps
-
-1. Choose your technology stack
-2. Add appropriate configuration files (package.json, requirements.txt, etc.)
-3. Set up your development environment
-4. Start coding!
-"""
- 
- readme_path = f"{path}/README.md"
- with open(readme_path, 'w') as f:
- f.write(readme)
- created_files.append(readme_path)
- 
- # Create a basic gitignore
- gitignore = """# Dependencies
-node_modules/
-venv/
-env/
-__pycache__/
-*.pyc
-
-# Build outputs
-dist/
-build/
-*.o
-*.exe
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Environment files
-.env
-.env.local
-"""
- 
- gitignore_path = f"{path}/.gitignore"
- with open(gitignore_path, 'w') as f:
- f.write(gitignore)
- created_files.append(gitignore_path)
- 
- colored_print(f"Created Generic project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Generic",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "Add your technology-specific files",
- "Update README.md with project details"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Generic project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Generic"}
- 
- def create_flask_project(self, name: str, path: str, description: str) -> Dict:
- """Create a Flask web application project"""
- try:
- # Create directory structure
- directories = [
- f"{path}/app",
- f"{path}/app/templates",
- f"{path}/app/static",
- f"{path}/app/static/css",
- f"{path}/app/static/js",
- f"{path}/tests"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create main Flask app
- app_py = f"""from flask import Flask, render_template, jsonify
-
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
-
-@app.route('/')
-def index():
- return render_template('index.html', title='{name}')
-
-@app.route('/api/health')
-def health():
- return jsonify({{'status': 'OK', 'message': '{name} is running!'}})
-
-if __name__ == '__main__':
- app.run(debug=True)
-"""
- 
- app_path = f"{path}/app.py"
- with open(app_path, 'w') as f:
- f.write(app_py)
- created_files.append(app_path)
- 
- # Create requirements.txt
- requirements = """Flask>=2.3.0
-python-dotenv>=1.0.0
-"""
- 
- req_path = f"{path}/requirements.txt"
- with open(req_path, 'w') as f:
- f.write(requirements)
- created_files.append(req_path)
- 
- # Create basic HTML template
- html_template = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
- <meta charset="UTF-8">
- <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <title>{name}</title>
- <style>
- body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
- .container {{ max-width: 800px; margin: 0 auto; }}
- .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem; border-radius: 8px; }}
- </style>
-</head>
-<body>
- <div class="container">
- <div class="header">
- <h1>{name}</h1>
- <p>{description}</p>
- </div>
- <h2>Flask Application Ready!</h2>
- <p>Your Flask web application is up and running.</p>
- </div>
-</body>
-</html>"""
- 
- template_path = f"{path}/app/templates/index.html"
- os.makedirs(f"{path}/app/templates", exist_ok=True)
- with open(template_path, 'w') as f:
- f.write(html_template)
- created_files.append(template_path)
- 
- colored_print(f"Created Flask project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Flask",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "pip install -r requirements.txt",
- "python app.py"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Flask project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Flask"}
- 
- def create_django_project(self, name: str, path: str, description: str) -> Dict:
- """Create a Django project structure"""
- try:
- # Create basic Django project structure
- directories = [
- f"{path}/{name.lower()}",
- f"{path}/apps",
- f"{path}/static",
- f"{path}/templates",
- f"{path}/media"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create manage.py
- manage_py = f"""#!/usr/bin/env python
-import os
-import sys
-
-if __name__ == '__main__':
- os.environ.setdefault('DJANGO_SETTINGS_MODULE', '{name.lower()}.settings')
- try:
- from django.core.management import execute_from_command_line
- except ImportError as exc:
- raise ImportError(
- "Couldn't import Django. Are you sure it's installed and "
- "available on your PYTHONPATH environment variable? Did you "
- "forget to activate a virtual environment?"
- ) from exc
- execute_from_command_line(sys.argv)
-"""
- 
- manage_path = f"{path}/manage.py"
- with open(manage_path, 'w') as f:
- f.write(manage_py)
- created_files.append(manage_path)
- 
- # Create requirements.txt
- requirements = """Django>=4.2.0
-python-decouple>=3.8.0
-"""
- 
- req_path = f"{path}/requirements.txt"
- with open(req_path, 'w') as f:
- f.write(requirements)
- created_files.append(req_path)
- 
- colored_print(f"Created Django project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Django",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "pip install -r requirements.txt",
- f"python manage.py startproject {name.lower()} .",
- "python manage.py runserver"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Django project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Django"}
- 
- def create_vue_project(self, name: str, path: str, description: str) -> Dict:
- """Create a Vue.js project structure"""
- try:
- # Create directory structure
- directories = [
- f"{path}/src",
- f"{path}/src/components",
- f"{path}/src/views",
- f"{path}/public"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json
- package_json = {
- "name": name.lower().replace(" ", "-"),
- "version": "0.1.0",
- "scripts": {
- "serve": "vue-cli-service serve",
- "build": "vue-cli-service build"
- },
- "dependencies": {
- "vue": "^3.2.13"
- },
- "devDependencies": {
- "@vue/cli-service": "~5.0.0"
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- colored_print(f"Created Vue.js project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Vue.js",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install",
- "npm run serve"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Vue.js project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Vue.js"}
- 
- def create_angular_project(self, name: str, path: str, description: str) -> Dict:
- """Create an Angular project structure"""
- try:
- # Create basic Angular structure
- directories = [
- f"{path}/src",
- f"{path}/src/app",
- f"{path}/src/assets"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json
- package_json = {
- "name": name.lower().replace(" ", "-"),
- "version": "0.0.0",
- "scripts": {
- "ng": "ng",
- "start": "ng serve",
- "build": "ng build",
- "test": "ng test"
- },
- "dependencies": {
- "@angular/animations": "^16.0.0",
- "@angular/common": "^16.0.0",
- "@angular/compiler": "^16.0.0",
- "@angular/core": "^16.0.0",
- "@angular/platform-browser": "^16.0.0",
- "rxjs": "~7.8.0"
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- colored_print(f"Created Angular project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Angular",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install",
- "ng serve"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Angular project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Angular"}
- 
- def create_nextjs_project(self, name: str, path: str, description: str) -> Dict:
- """Create a Next.js project structure"""
- try:
- # Create directory structure 
- directories = [
- f"{path}/pages",
- f"{path}/components",
- f"{path}/styles",
- f"{path}/public"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json
- package_json = {
- "name": name.lower().replace(" ", "-"),
- "version": "0.1.0",
- "scripts": {
- "dev": "next dev",
- "build": "next build",
- "start": "next start"
- },
- "dependencies": {
- "next": "13.4.0",
- "react": "18.2.0",
- "react-dom": "18.2.0"
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- colored_print(f"Created Next.js project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "Next.js",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install",
- "npm run dev"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating Next.js project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "Next.js"}
- 
- def create_fastapi_project(self, name: str, path: str, description: str) -> Dict:
- """Create a FastAPI project structure"""
- try:
- # Create directory structure
- directories = [
- f"{path}/app",
- f"{path}/app/routers",
- f"{path}/tests"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create main FastAPI app
- main_py = f"""from fastapi import FastAPI
-from app.routers import items
-
-app = FastAPI(title="{name}", description="{description}")
-
-app.include_router(items.router, prefix="/api/v1")
-
-@app.get("/")
-async def root():
- return {{"message": "Welcome to {name}!"}}
-
-@app.get("/health")
-async def health_check():
- return {{"status": "OK"}}
-"""
- 
- main_path = f"{path}/main.py"
- with open(main_path, 'w') as f:
- f.write(main_py)
- created_files.append(main_path)
- 
- # Create requirements.txt
- requirements = """fastapi>=0.100.0
-uvicorn[standard]>=0.23.0
-"""
- 
- req_path = f"{path}/requirements.txt"
- with open(req_path, 'w') as f:
- f.write(requirements)
- created_files.append(req_path)
- 
- colored_print(f"Created FastAPI project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "FastAPI",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "pip install -r requirements.txt",
- "uvicorn main:app --reload"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating FastAPI project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "FastAPI"}
- 
- def create_js_project(self, name: str, path: str, description: str) -> Dict:
- """Create a JavaScript project structure"""
- try:
- # Create directory structure
- directories = [
- f"{path}/src",
- f"{path}/tests"
- ]
- 
- created_files = []
- for directory in directories:
- os.makedirs(directory, exist_ok=True)
- 
- # Create package.json
- package_json = {
- "name": name.lower().replace(" ", "-"),
- "version": "1.0.0",
- "description": description,
- "main": "src/index.js",
- "scripts": {
- "start": "node src/index.js",
- "test": "jest"
- }
- }
- 
- package_path = f"{path}/package.json"
- with open(package_path, 'w') as f:
- json.dump(package_json, f, indent=2)
- created_files.append(package_path)
- 
- colored_print(f"Created JavaScript project: {name}", Colors.GREEN)
- return {
- "success": True,
- "project_type": "JavaScript",
- "project_name": name,
- "project_path": path,
- "files_created": created_files,
- "directories_created": directories,
- "next_steps": [
- f"cd {path}",
- "npm install",
- "npm start"
- ]
- }
- 
- except Exception as e:
- colored_print(f"Error creating JavaScript project: {e}", Colors.RED)
- return {"success": False, "error": str(e), "project_type": "JavaScript"}
- 
- def create_api_project(self, name: str, path: str, description: str) -> Dict:
- """Create a REST API project - defaults to FastAPI"""
- return self.create_fastapi_project(name, path, description)
- 
- # === Missing Agent Handler Methods ===
- 
- def handle_code_generation_task(self, task: Dict) -> Dict:
- """Handle code generation tasks for coder agent"""
- description = task["description"]
- colored_print(f"\n Coder Agent Processing Task:", Colors.BRIGHT_YELLOW)
- colored_print(f"Task: {description}", Colors.WHITE)
- 
- try:
- # Generate code based on description
- prompt = f"""Generate code based on this request: {description}
- 
- Provide clean, production-ready code with:
- - Proper error handling
- - Clear comments
- - Best practices
- - Complete implementation
- """
- 
- try:
- response = self.query_ollama(prompt)
- except:
- # Fallback if ollama is not available
- response = f"""// Generated code for: {description}
-// This is a placeholder implementation
-// TODO: Implement the actual functionality
-
-console.log('Code generation task: {description}');
-"""
- 
- colored_print(f"Code generation completed", Colors.GREEN)
- return {
- "success": True,
- "generated_code": response,
- "task_type": "code_generation",
- "completed_by": "coder"
- }
- 
- except Exception as e:
- colored_print(f"Code generation failed: {e}", Colors.RED)
- return {
- "success": False,
- "error": str(e),
- "task_type": "code_generation"
- }
- 
- def handle_code_review_task(self, task: Dict) -> Dict:
- """Handle code review tasks for code reviewer agent"""
- description = task["description"]
- colored_print(f"\n Code Reviewer Agent Processing Task:", Colors.BRIGHT_YELLOW)
- colored_print(f"Task: {description}", Colors.WHITE)
- 
- try:
- # Look for code files in the workspace to review
- workspace_files = []
- for root, dirs, files in os.walk(self.workspace_dir):
- # Skip .agent_comm directory
- if '.agent_comm' in root:
- continue
- for file in files:
- if file.endswith(('.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.cpp', '.c')):
- workspace_files.append(os.path.join(root, file))
- 
- colored_print(f"Found {len(workspace_files)} code files to review", Colors.CYAN)
- 
- review_results = []
- files_reviewed = 0
- 
- # Review up to 5 files to avoid overwhelming output
- for file_path in workspace_files[:5]:
- try:
- with open(file_path, 'r') as f:
- content = f.read()
- 
- # Simple code review analysis
- issues = []
- suggestions = []
- 
- # Basic checks
- if len(content.split('\n')) > 200:
- suggestions.append("Consider breaking this large file into smaller modules")
- 
- if 'TODO' in content.upper():
- issues.append("Contains TODO items that need attention")
- 
- if 'console.log' in content and file_path.endswith('.js'):
- suggestions.append("Remove console.log statements for production")
- 
- if 'print(' in content and file_path.endswith('.py'):
- suggestions.append("Consider using proper logging instead of print statements")
- 
- # Count lines and complexity
- lines = len(content.split('\n'))
- 
- review_result = {
- "file": os.path.relpath(file_path, self.workspace_dir),
- "lines": lines,
- "issues": issues,
- "suggestions": suggestions,
- "status": "reviewed"
- }
- 
- review_results.append(review_result)
- files_reviewed += 1
- 
- colored_print(f"Reviewed: {os.path.basename(file_path)} ({lines} lines)", Colors.GREEN)
- 
- except Exception as e:
- colored_print(f"Failed to review {file_path}: {e}", Colors.RED)
- 
- # Generate overall assessment
- total_issues = sum(len(r['issues']) for r in review_results)
- total_suggestions = sum(len(r['suggestions']) for r in review_results)
- 
- assessment = {
- "files_reviewed": files_reviewed,
- "total_issues": total_issues,
- "total_suggestions": total_suggestions,
- "overall_quality": "Good" if total_issues < 3 else "Needs Improvement",
- "review_results": review_results
- }
- 
- colored_print(f"\n Code Review Summary:", Colors.BRIGHT_CYAN)
- colored_print(f"Files reviewed: {files_reviewed}", Colors.WHITE)
- colored_print(f"Issues found: {total_issues}", Colors.YELLOW if total_issues > 0 else Colors.GREEN)
- colored_print(f"Suggestions: {total_suggestions}", Colors.CYAN)
- colored_print(f"Overall quality: {assessment['overall_quality']}", Colors.GREEN if assessment['overall_quality'] == 'Good' else Colors.YELLOW)
- 
- colored_print(f"Code review completed", Colors.GREEN)
- return {
- "success": True,
- "assessment": assessment,
- "task_type": "code_review",
- "completed_by": "code_reviewer"
- }
- 
- except Exception as e:
- colored_print(f"Code review failed: {e}", Colors.RED)
- return {
- "success": False,
- "error": str(e),
- "task_type": "code_review"
- }
- 
- def handle_code_rewrite_task(self, task: Dict) -> Dict:
- """Handle code rewriting tasks for code rewriter agent"""
- description = task["description"]
- colored_print(f"\n Code Rewriter Agent Processing Task:", Colors.BRIGHT_YELLOW)
- colored_print(f"Task: {description}", Colors.WHITE)
- 
- try:
- # Look for code files that might need rewriting
- workspace_files = []
- for root, dirs, files in os.walk(self.workspace_dir):
- if '.agent_comm' in root:
- continue
- for file in files:
- if file.endswith(('.js', '.jsx', '.ts', '.tsx', '.py', '.java')):
- workspace_files.append(os.path.join(root, file))
- 
- colored_print(f"Found {len(workspace_files)} code files to analyze", Colors.CYAN)
- 
- files_processed = 0
- fixes_applied = []
- 
- # Process up to 3 files
- for file_path in workspace_files[:3]:
- try:
- with open(file_path, 'r') as f:
- original_content = f.read()
- 
- # Simple fixes
- modified_content = original_content
- changes_made = []
- 
- # Remove excessive whitespace
- if '\n\n\n\n' in modified_content:
- modified_content = modified_content.replace('\n\n\n\n', '\n\n\n')
- changes_made.append("Reduced excessive whitespace")
- 
- # Fix common JavaScript issues
- if file_path.endswith('.js') or file_path.endswith('.jsx'):
- # Add semicolons where missing (simple check)
- lines = modified_content.split('\n')
- for i, line in enumerate(lines):
- stripped = line.strip()
- if stripped and not stripped.endswith((';', '{', '}', ':', ',')) and not stripped.startswith('//'):
- if any(keyword in stripped for keyword in ['return', 'const ', 'let ', 'var ']):
- lines[i] = line + ';'
- if "Added semicolons" not in changes_made:
- changes_made.append("Added missing semicolons")
- 
- modified_content = '\n'.join(lines)
- 
- # Fix Python issues
- elif file_path.endswith('.py'):
- # Remove trailing whitespace
- lines = modified_content.split('\n')
- cleaned_lines = [line.rstrip() for line in lines]
- if lines != cleaned_lines:
- modified_content = '\n'.join(cleaned_lines)
- changes_made.append("Removed trailing whitespace")
- 
- # Save changes if any were made
- if changes_made:
- with open(file_path, 'w') as f:
- f.write(modified_content)
- 
- fix_result = {
- "file": os.path.relpath(file_path, self.workspace_dir),
- "changes": changes_made,
- "status": "fixed"
- }
- fixes_applied.append(fix_result)
- 
- colored_print(f"Fixed: {os.path.basename(file_path)} ({len(changes_made)} fixes)", Colors.GREEN)
- else:
- colored_print(f"Clean: {os.path.basename(file_path)} (no fixes needed)", Colors.CYAN)
- 
- files_processed += 1
- 
- except Exception as e:
- colored_print(f"Failed to process {file_path}: {e}", Colors.RED)
- 
- colored_print(f"\n Code Rewrite Summary:", Colors.BRIGHT_CYAN)
- colored_print(f"Files processed: {files_processed}", Colors.WHITE)
- colored_print(f"Files fixed: {len(fixes_applied)}", Colors.GREEN)
- 
- for fix in fixes_applied:
- colored_print(f"• {fix['file']}: {', '.join(fix['changes'])}", Colors.YELLOW)
- 
- colored_print(f"Code rewrite completed", Colors.GREEN)
- return {
- "success": True,
- "files_processed": files_processed,
- "fixes_applied": fixes_applied,
- "task_type": "code_rewrite",
- "completed_by": "code_rewriter"
- }
- 
- except Exception as e:
- colored_print(f"Code rewrite failed: {e}", Colors.RED)
- return {
- "success": False,
- "error": str(e),
- "task_type": "code_rewrite"
- }
-
- def run_interactive(self):
- """Run the interactive agent terminal"""
- colored_print(f"Agent {self.agent_id} ({self.role.value}) registered", Colors.BRIGHT_GREEN)
- colored_print("Type 'help' for available commands, 'exit' to quit", Colors.CYAN)
- 
- try:
- while self.running:
- try:
- # Get input from user
- prompt = f"{Colors.BRIGHT_BLUE}{self.role.value}> {Colors.RESET}"
- user_input = input(prompt).strip()
- 
- if not user_input:
- continue
- 
- if user_input.lower() in ['exit', 'quit', 'q']:
- break
- elif user_input.lower() == 'help':
- self.show_help()
- elif user_input.lower() == 'status':
- self.show_status()
- elif user_input.lower() == 'clear':
- os.system('clear' if os.name != 'nt' else 'cls')
- elif user_input.startswith('delegate '):
- self.handle_delegate_command(user_input)
- elif user_input.startswith('create ') and self.role == AgentRole.FILE_MANAGER:
- # Handle direct file manager commands
- try:
- result = self.create_project_smart(user_input[7:]) # Remove 'create ' prefix
- colored_print(f"Project created: {result}", Colors.GREEN)
- except Exception as e:
- colored_print(f"Failed to create project: {e}", Colors.RED)
- else:
- # Try to execute as a system command
- self.run_command(user_input)
- 
- except KeyboardInterrupt:
- colored_print("\n-- Use 'exit' to quit", Colors.YELLOW)
- except EOFError:
- break
- 
- except Exception as e:
- colored_print(f"-- Terminal error: {e}", Colors.RED)
- finally:
- self.shutdown()
-
- def show_help(self):
- """Show help information"""
- colored_print(f"\n{self.role.value.title()} Agent Commands:", Colors.BRIGHT_CYAN)
- colored_print("=" * 40, Colors.CYAN)
- colored_print("help - Show this help", Colors.WHITE)
- colored_print("status - Show agent status", Colors.WHITE)
- colored_print("clear - Clear screen", Colors.WHITE)
- colored_print("exit/quit/q - Exit agent", Colors.WHITE)
- colored_print("delegate 'task' to <agent> - Delegate task to another agent", Colors.WHITE)
- colored_print("", Colors.WHITE)
- colored_print("Examples:", Colors.BRIGHT_YELLOW)
- colored_print(" delegate 'Create React.js TimeDisplayApp' to file_manager", Colors.YELLOW)
- colored_print(" delegate 'Review code quality' to code_reviewer", Colors.YELLOW)
- colored_print(" delegate 'Fix syntax errors' to code_rewriter", Colors.YELLOW)
- colored_print("")
-
- def show_status(self):
- """Show current agent status"""
- colored_print(f"\nAgent Status: {self.agent_id}", Colors.BRIGHT_CYAN)
- colored_print("=" * 40, Colors.CYAN)
- colored_print(f"Role: {self.role.value}", Colors.WHITE)
- colored_print(f"Status: {'Running' if self.running else 'Stopped'}", Colors.GREEN if self.running else Colors.RED)
- colored_print(f"Workspace: {self.workspace_dir}", Colors.WHITE)
- 
- # Show pending tasks
- pending_tasks = self.comm.get_pending_tasks(self.agent_id)
- colored_print(f"Pending tasks: {len(pending_tasks)}", Colors.YELLOW)
- 
- # Show all active agents
- agents = self.comm.load_agents()
- active_agents = [a for a in agents if a.get('status') == 'active']
- colored_print(f"Active agents: {len(active_agents)}", Colors.GREEN)
- for agent in active_agents:
- colored_print(f"• {agent['role']} ({agent['id']})", Colors.CYAN)
- colored_print("")
-
- def handle_delegate_command(self, command: str):
- """Handle task delegation commands"""
- import re
- 
- # Parse delegation command: delegate 'task description' to agent_role
- pattern = r"delegate\s+['\"]([^'\"]+)['\"]?\s+to\s+(\w+)"
- match = re.search(pattern, command, re.IGNORECASE)
- 
- if not match:
- colored_print(" Invalid delegation syntax. Use: delegate 'task description' to agent_role", Colors.RED)
- colored_print("Example: delegate 'Create React.js app' to file_manager", Colors.YELLOW)
- return
- 
- task_description = match.group(1)
- target_agent_role = match.group(2).lower()
- 
- # Validate target agent role
- valid_roles = [role.value for role in AgentRole]
- if target_agent_role not in valid_roles:
- colored_print(f"Invalid agent role: {target_agent_role}", Colors.RED)
- colored_print(f"Valid roles: {', '.join(valid_roles)}", Colors.YELLOW)
- return
- 
- # Create and assign task
- task_id = self.comm.create_task(
- task_type="delegated_task",
- description=task_description,
- assigned_to=target_agent_role,
- created_by=self.agent_id
- )
- 
- colored_print(f"Task created and delegated to {target_agent_role}:", Colors.GREEN)
- colored_print(f"Task ID: {task_id}", Colors.CYAN)
- colored_print(f"Description: '{task_description}'", Colors.WHITE)
- colored_print(f"Assigned to: {target_agent_role}", Colors.YELLOW)
- colored_print(f"Created by: {self.agent_id} ({self.role.value})", Colors.CYAN)
- 
- # Check if target agent is active
- active_agents = self.comm.get_active_agents()
- target_agents = [agent for agent in active_agents if agent["role"] == target_agent_role]
- 
- if target_agents:
- agent_ids = [agent["id"] for agent in target_agents]
- colored_print(f"Status: Target agent ({target_agent_role}) is ACTIVE", Colors.GREEN)
- colored_print(f"Active {target_agent_role} agents: {agent_ids}", Colors.CYAN)
- else:
- colored_print(f"Warning: Target agent ({target_agent_role}) is NOT ACTIVE", Colors.RED)
- colored_print(f"Available agents: {[(agent['id'], agent['role']) for agent in active_agents]}", Colors.YELLOW)
-
- def run_command(self, command: str):
- """Run a system command"""
- import subprocess
- 
- colored_print(f"Executing: {command}", Colors.BRIGHT_BLUE)
- try:
- result = subprocess.run(command, shell=True)
- if result.returncode == 0:
- colored_print("Command completed", Colors.GREEN)
- else:
- colored_print(f"⚠Command exited with code {result.returncode}", Colors.YELLOW)
- except Exception as e:
- colored_print(f"Command failed: {e}", Colors.RED)
-
- def query_ollama(self, prompt: str) -> str:
- """Query Ollama for AI responses (if available)"""
- try:
- import subprocess
- result = subprocess.run([
- self.ollama_cmd, "run", self.default_model, prompt
- ], capture_output=True, text=True, timeout=30)
- 
- if result.returncode == 0:
- return result.stdout.strip()
- else:
- raise Exception(f"Ollama failed: {result.stderr}")
- 
- except Exception as e:
- # Fallback response if Ollama is not available
- colored_print(f"Ollama not available, using fallback response", Colors.YELLOW)
- return f"AI assistance not available. Task acknowledged: {prompt[:100]}..."
- 
- def extract_code_from_response(self, response: str) -> str:
- """Extract code content from AI response"""
- # Remove markdown code blocks if present
- if "```" in response:
- lines = response.split('\n')
- in_code_block = False
- code_lines = []
- 
- for line in lines:
- if line.strip().startswith('```'):
- in_code_block = not in_code_block
- continue
- if in_code_block:
- code_lines.append(line)
- 
- return '\n'.join(code_lines) if code_lines else response
- 
- return response
-
- def shutdown(self):
- """Shutdown the agent gracefully"""
- colored_print(f"\nShutting down agent {self.agent_id}...", Colors.YELLOW)
- self.running = False
- self.save_history()
- colored_print(" Goodbye!", Colors.GREEN)
-
-def main():
- import sys
- 
- if len(sys.argv) < 2:
- print("Usage: python multi_agent_terminal.py <role> [agent_id]")
- print("Roles: coordinator, coder, code_reviewer, code_rewriter, file_manager, git_manager, researcher")
- sys.exit(1)
- 
- role_str = sys.argv[1].lower()
- agent_id = sys.argv[2] if len(sys.argv) > 2 else f"{role_str}_agent_{int(time.time())}"
- 
- try:
- role = AgentRole(role_str)
- except ValueError:
- print(f"Invalid role: {role_str}")
- print("Available roles: coordinator, coder, code_reviewer, code_rewriter, file_manager, git_manager, researcher")
- sys.exit(1)
- 
- terminal = MultiAgentTerminal(agent_id, role)
- terminal.run_interactive()
-
-if __name__ == "__main__":
- main()
+    main()

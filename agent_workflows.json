@@ -1,7 +1,7 @@
 {
   "workflows": {
-    "react-development": {
-      "description": "Complete React.js development workflow",
+    "ai-development": {
+      "description": "Universal AI-powered development workflow (supports React, Vue, Python, Node.js, Java, etc.)",
       "agents": [
         {"role": "coordinator", "name": "main"},
         {"role": "file_manager", "name": "files"},

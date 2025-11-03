@@ -1,23 +1,37 @@
-# Multi-Agent AI Terminal System
+# Multi-Agent AI Terminal System with Project_Process Paradigm
 
-A sophisticated multi-agent coordination system where specialized AI agents collaborate to solve complex problems through intelligent task delegation and real-time communication.
+A sophisticated multi-agent coordination system where specialized AI agents collaborate on focused **Project_Process** workflows using complete project context for intelligent AI-powered development.
 
-## Features
+## 🎯 Project_Process Paradigm
+
+- **Single Project Focus**: All agents work on ONE Project_Process at a time
+- **Complete Project Context**: AI model receives full project file contents as input
+- **True AI Collaboration**: No hardcoded solutions - all generation through AI model
+- **Context-Aware Intelligence**: Agents understand entire project structure
+- **Collaborative Workflows**: Agents share project knowledge for better results
+
+## ✨ Features
 
 - **7 Specialized Agent Roles**: Coordinator, Coder, Code Reviewer, Code Rewriter, File Manager, Git Manager, Researcher
-- **Universal Project Creation**: Supports 14+ project types (React.js, Vue.js, Angular, Flask, Django, etc.)
-- **Real-time Communication**: JSON-based inter-agent messaging
+- **Project_Process Management**: Focus on one project with complete context loading
+- **AI-Powered Generation**: All code/content generated through AI model with project context
+- **Real-time Communication**: JSON-based inter-agent messaging with project awareness
 - **Cross-platform**: Native Linux/macOS support with WSL optimization
 - **Automated Launchers**: Multiple startup methods for different environments
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
-# Start the system
+# Start the system with Project_Process focus
 ./launch_agents.sh
 
-# Or use WSL-optimized launcher
-./launch_agents_wsl.sh
+# Set Project_Process focus (in coordinator terminal)
+project                    # Check current project
+set_project TimeDisplayApp # Focus on specific project
+files                      # View loaded project files
+
+# Or use automated launcher with preset workflows
+python3 smart_launcher.py react-development
 
 # Check system status
 ./multi-agent status
@@ -35,17 +49,30 @@ A sophisticated multi-agent coordination system where specialized AI agents coll
 | **Git Manager** | Version control operations |
 | **Researcher** | Information gathering and best practices |
 
-## Universal Project Creation
+## 🤖 AI-Powered Project_Process Creation
 
-The File Manager agent can intelligently create projects of any type:
+The File Manager agent uses AI collaboration with project context for intelligent creation:
 
 ```bash
-delegate 'create a React.js todo app' to file_manager
-delegate 'create a Flask API server' to file_manager
-delegate 'create a Vue.js dashboard' to file_manager
+# Set project focus first
+set_project MyReactApp
+
+# AI-powered creation with full context awareness
+delegate 'create React.js todo app with time tracking components' to file_manager
+delegate 'add Flask API server to existing React project' to file_manager
+delegate 'enhance Vue.js dashboard with real-time data' to file_manager
 ```
 
-Supported project types: React.js, React Native, Vue.js, Angular, Next.js, Flask, Django, FastAPI, Node.js, Python, JavaScript, Web, API, Generic
+**AI Collaboration Features:**
+- Complete project context provided to AI model
+- Context-aware component generation
+- Intelligent file structure decisions
+- No hardcoded templates - pure AI creativity
+
+**Project Process Commands:**
+- `project` - Show current project status
+- `set_project <name>` - Focus on specific project
+- `files` - View loaded project files for AI context
 
 ## Documentation
 
