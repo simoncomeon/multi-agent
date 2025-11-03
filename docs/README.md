@@ -104,11 +104,21 @@ delegate 'commit improvements with detailed message' to git_manager
 
 ### Universal Commands (all agents)
 - `help` - Show agent-specific help
-- `agents` - List all active agents
+- `agents` - List all active agents with process status
 - `tasks` - Show task queue status  
 - `delegate <description> to <role>` - Assign task to specialist
 - `ollama <prompt>` - Query AI directly
 - `exit` - Shutdown agent
+
+### Agent Lifecycle Management Commands
+- `status <agent_name>` - Detailed health check and status of specific agent
+- `kill <agent_name>` - Terminate and remove faulty agent from system
+- `restart <agent_name>` - Kill and respawn agent with same role (fault recovery)
+- `spawn <role> <name>` - Create new specialized agent with custom name
+- `cleanup` - Remove all inactive agents from registry
+- `project` - Show current project process focus and files loaded
+- `set_project <name>` - Set focus to specific project for AI context
+- `files` - View project files loaded for AI collaboration
 
 ### Specialized Commands
 
@@ -139,6 +149,70 @@ delegate 'commit improvements with detailed message' to git_manager
 - `status` - Git repository status
 
 ## -- Advanced Features
+
+### Enhanced File Manager - Smart Project Intelligence
+
+The file manager now includes advanced project intelligence:
+
+**Auto-Project Location**
+```bash
+# File manager automatically finds existing projects
+delegate "Create TimeComponent" to file_manager
+# → Locates "TimeDisplayApp" project automatically
+# → Creates: workspace/TimeDisplayApp/src/TimeComponent.jsx
+# → NO MORE "UnknownProject" creation!
+```
+
+**Project Structure Analysis**
+- **React Projects**: Detects package.json, src/, components/ structure
+- **Python Projects**: Identifies setup.py, requirements.txt, src/ layout  
+- **Java Projects**: Recognizes pom.xml, Maven/Gradle structure
+- **Vue Projects**: Finds Vue config, components, assets directories
+- **Node.js Projects**: Detects Express, API, routes patterns
+
+**Intelligent Component Creation**
+- Analyzes existing project to match coding style
+- Places files in appropriate directories based on framework
+- Integrates with existing architecture seamlessly
+- Uses project context for AI-generated code
+
+### Production-Grade Agent Management
+
+**Health Monitoring & Fault Recovery**
+```bash
+# Monitor system health
+agents                    # List all agents with PID and status
+status file_manager       # Detailed health check
+   # Output: ID, Role, Status, PID, Process State, Pending Tasks
+
+# Handle faulty agents  
+kill problematic_agent    # Terminate faulty agent
+restart coder            # Kill and respawn with same role
+spawn tester qa_new      # Create specialized agent
+
+# System maintenance
+cleanup                  # Remove inactive/zombie agents
+```
+
+**Dynamic Agent Scaling**
+```bash
+# Scale up for complex projects
+spawn code_reviewer frontend_reviewer
+spawn code_reviewer backend_reviewer  
+spawn coder react_specialist
+spawn coder python_specialist
+
+# Scale down when complete
+kill frontend_reviewer
+kill react_specialist
+```
+
+**Process Management Features**
+- **PID Tracking**: Each agent's process ID monitored
+- **Health Verification**: Real-time process status checking
+- **Graceful Shutdown**: SIGTERM for clean termination
+- **Registry Cleanup**: Automatic removal of orphaned entries
+- **Zero-Downtime Recovery**: Restart agents without affecting others
 
 ### Inter-Agent Communication
 
@@ -221,24 +295,69 @@ cat workspace/.agent_comm/messages.json
 
 1. **Agent not responding**
    ```bash
-   ./multi-agent clean  # Clear communication files
-   ./multi-agent status # Check agent status
+   status agent_name        # Check detailed agent health
+   restart agent_name       # Kill and respawn agent
+   ./multi-agent clean     # Clear communication files
+   ./multi-agent status    # Check system status
    ```
 
 2. **Tasks not executing**
-   - Check agent is active: `./multi-agent status`
-   - Verify task queue: `cat workspace/.agent_comm/tasks.json`
-   - Restart specific agent role
+   - Check agent health: `status file_manager`
+   - Verify agent is running: `agents` (shows PID and process status)
+   - Restart problematic agent: `restart coder`
+   - Check task queue: `tasks`
 
-3. **Communication errors**
+3. **File Manager creating "UnknownProject"**
+   - Set project focus first: `set_project MyProject`
+   - Use specific project names in delegate commands
+   - Check existing projects: `project`
+   - Enhanced file manager now auto-locates existing projects
+
+4. **Agent process stuck or zombie**
+   ```bash
+   kill stuck_agent         # Force terminate
+   cleanup                  # Remove inactive agents  
+   spawn role new_name      # Create replacement
+   ```
+
+5. **Communication errors**
    - Ensure workspace directory has write permissions
    - Check `.agent_comm/` directory exists
    - Verify JSON files are not corrupted
+   - Use `cleanup` to remove corrupted entries
 
-4. **Code Rewriter not processing reviews**
-   - Verify Code Reviewer has completed task: `./multi-agent status`
-   - Check Code Rewriter agent is active and registered
-   - Ensure review output format is compatible with Code Rewriter input
+6. **Project context not loading**
+   ```bash
+   set_project ProjectName  # Set explicit focus
+   files                    # Verify files loaded
+   project                  # Check current project status
+   ```
+
+### Agent Recovery Strategies
+
+**Complete Agent Reset**
+```bash
+# For severely corrupted agent
+kill problem_agent
+cleanup
+spawn agent_role new_name
+```
+
+**System Health Check**  
+```bash
+# Regular maintenance routine
+agents                    # Check all agent status
+cleanup                   # Remove inactive agents
+./multi-agent status     # Overall system health
+```
+
+**Project Focus Issues**
+```bash
+# If agents lose project context
+set_project MyProject    # Refocus all agents
+files                    # Verify project files loaded
+delegate "status check" to file_manager  # Test functionality
+```
 
 ## -- Development
 

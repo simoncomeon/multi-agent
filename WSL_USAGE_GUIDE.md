@@ -72,6 +72,14 @@ python3 wsl_launcher.py minimal # Basic setup
 python3 wsl_launcher.py status
 ./multi-agent status
 
+# Enhanced agent management (in coordinator terminal)
+agents                    # List all agents with PID and status
+status file_manager      # Detailed health check of specific agent
+kill faulty_agent        # Terminate problematic agent
+restart coder            # Kill and respawn agent (fault recovery)
+spawn researcher info    # Create new specialized agent
+cleanup                  # Remove inactive agents from registry
+
 # Clean up
 python3 wsl_launcher.py clean
 ./multi-agent clean
@@ -132,23 +140,45 @@ TimeDisplayApp/
 
 ## **Troubleshooting WSL**
 
+### **Enhanced WSL Troubleshooting with Agent Management**
+
 ### **If agents don't register:**
 ```bash
-# Wait a moment and check again
-sleep 5 && ./multi-agent status
+# Check agent health
+./connect_coordinator.sh
+agents                   # Check all agent status with PIDs
+status coordinator       # Detailed coordinator health
 
-# Or clean and restart
-./multi-agent clean
-python3 wsl_launcher.py react-dev
+# If agent is stuck
+restart file_manager    # Kill and respawn specific agent
+cleanup                 # Remove inactive entries
 ```
 
 ### **If coordinator connection fails:**
 ```bash
-# Check if coordinator is running
-ps aux | grep "coordinator main"
+# Check coordinator status  
+status coordinator      # In any agent terminal
+kill coordinator        # If stuck
+spawn coordinator main  # Recreate coordinator
 
-# Connect directly
-python3 bin/multi_agent_terminal.py coordinator main
+# Or restart entire system
+./multi-agent clean
+python3 wsl_launcher.py react-dev
+```
+
+### **Agent Recovery Strategies:**
+```bash
+# For faulty file manager
+kill files
+spawn file_manager new_files
+
+# For stuck code reviewer  
+restart reviewer
+status reviewer         # Verify recovery
+
+# Complete system health check
+agents                  # List all with process status
+cleanup                 # Remove zombies
 ```
 
 ### **For better terminal experience:**

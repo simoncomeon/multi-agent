@@ -18,6 +18,14 @@ python3 smart_launcher.py ai-development
 set_project MyTimeDisplayApp    # Focus on specific project
 project                        # Check current project status
 files                          # View loaded files for AI context
+
+# NEW: Agent lifecycle management available
+agents                         # Monitor all agent health
+status file_manager           # Check specific agent status
+restart coder                 # Restart problematic agents
+kill faulty_agent            # Remove broken agents
+spawn tester qa_specialist   # Add specialized agents
+cleanup                      # Remove inactive agents
 ```
 
 ## **Available Launchers**

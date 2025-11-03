@@ -11,30 +11,36 @@ import subprocess
 from pathlib import Path
 
 def get_agent_pids():
- """Get all active agent PIDs from the agents.json file"""
- agents_file = ".agent_comm/agents.json"
- 
- if not os.path.exists(agents_file):
- print(" No agents file found")
- return []
- 
- try:
- with open(agents_file, 'r') as f:
- agents = json.load(f)
- 
- pids = []
- for agent in agents:
- if agent.get('status') == 'active' and 'pid' in agent:
- pids.append({
- 'id': agent['id'],
- 'pid': agent['pid'],
- 'role': agent['role']
- })
- 
- return pids
- except Exception as e:
- print(f" Error reading agents file: {e}")
- return []
+    """Get all active agent PIDs from the agents.json file"""
+    agents_file = ".agent_comm/agents.json"
+    workspace_agents_file = "workspace/.agent_comm/agents.json"
+    
+    # Try both locations for agents.json
+    if os.path.exists(workspace_agents_file):
+        agents_file = workspace_agents_file
+    elif os.path.exists(agents_file):
+        agents_file = agents_file
+    else:
+        print("INFO: No agents file found")
+        return []
+    
+    try:
+        with open(agents_file, 'r') as f:
+            agents = json.load(f)
+        
+        pids = []
+        for agent in agents:
+            if agent.get('status') == 'active' and 'pid' in agent:
+                pids.append({
+                    'id': agent['id'],
+                    'pid': agent['pid'],
+                    'role': agent['role']
+                })
+        
+        return pids
+    except Exception as e:
+        print(f"ERROR: Error reading agents file: {e}")
+        return []
 
 def kill_agent_processes(agent_pids):
  """Safely terminate agent processes using system calls"""

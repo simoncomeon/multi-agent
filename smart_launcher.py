@@ -271,6 +271,7 @@ def show_usage():
     print("=" * 40)
     print()
     print("INFO: Usage:")
+    print("  python3 smart_launcher.py guided                   # RECOMMENDED: Interactive guided mode")
     print("  python3 smart_launcher.py <workflow_name>           # Launch workflow in terminals")
     print("  python3 smart_launcher.py <workflow_name> --bg      # Launch workflow in background") 
     print("  python3 smart_launcher.py --list                   # List available workflows")
@@ -279,6 +280,7 @@ def show_usage():
     print("  python3 smart_launcher.py --help                   # Show this help + connection guide")
     print()
     print("TIP: Examples:")
+    print("  python3 smart_launcher.py guided                   # NEW: Start with coordinator assistant")
     print("  python3 smart_launcher.py ai-development           # Universal AI development team")
     print("  python3 smart_launcher.py code-review --bg         # Background code review team")
     print("  python3 smart_launcher.py --custom coordinator:main coder:dev  # Custom setup")
@@ -342,6 +344,38 @@ def show_connection_help():
     print("   SUCCESS: Use 'delegate \"task\" to role' for intelligent task assignment")
     print("   SUCCESS: All agents maintain project context regardless of launch method")
 
+def launch_guided_mode():
+    """Launch guided interactive mode with main coordinator"""
+    print("GUIDED: Starting Interactive AI Development Assistant")
+    print("=" * 55)
+    print("")
+    print("FRAMEWORK: Universal AI-powered development (React, Vue, Python, Node.js, Java, Go, C#, Rust)")
+    print("")
+    print("LAUNCH: Starting main coordinator...")
+    
+    # Launch only the coordinator agent
+    system_type = detect_system()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    agent_script = os.path.join(script_dir, "bin", "multi_agent_terminal.py")
+    
+    success = launch_agent("coordinator", "main", method="terminal")
+    
+    if success:
+        print("SUCCESS: Main coordinator started")
+        print("")
+        print("CONNECT: Connect to your AI assistant:")
+        print(f"   python3 bin/multi_agent_terminal.py main coordinator")
+        print("")
+        print("INFO: The coordinator will guide you through:")
+        print("   - Creating new projects")
+        print("   - Selecting development frameworks") 
+        print("   - Spawning additional specialized agents")
+        print("   - Managing your development workflow")
+        print("")
+        print("TIP: Just connect to the coordinator and say what you want to build!")
+    else:
+        print("ERROR: Failed to start coordinator")
+
 def main():
     """Main entry point"""
     workflows = load_workflows()
@@ -364,6 +398,9 @@ def main():
         show_connection_help()
     elif command == "--connect":
         show_connection_help()
+    elif command == "guided" or command == "--guided":
+        launch_guided_mode()
+        return
     elif command == "--custom":
         agent_specs = [arg for arg in sys.argv[2:] if not arg.startswith("--")]
         if not agent_specs:

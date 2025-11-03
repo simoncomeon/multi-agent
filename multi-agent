@@ -69,8 +69,28 @@ case "${1:-help}" in
  echo "Multi-agent system cleaned and ready for fresh start!"
  ;;
  "cleanup"|"reset")
- echo " Deep Cleanup - Resetting Multi-Agent System..."
- "$MULTI_AGENT_ROOT/cleanup_agents_simple.py"
+ echo "CLEANUP: Deep Cleanup - Resetting Multi-Agent System..."
+ echo "========================================================"
+ 
+ # Kill any running agent processes
+ echo "TERMINATE: Stopping all agent processes..."
+ pkill -f "multi_agent_terminal.py" 2>/dev/null && echo "SUCCESS: Terminated running agents" || echo "INFO: No running agents found"
+ 
+ # Clean communication files in both possible locations
+ for comm_dir in ".agent_comm" "workspace/.agent_comm"; do
+   if [ -d "$MULTI_AGENT_ROOT/$comm_dir" ]; then
+     echo "CLEAN: Cleaning $comm_dir directory..."
+     echo "[]" > "$MULTI_AGENT_ROOT/$comm_dir/agents.json" 2>/dev/null && echo "SUCCESS: Cleaned agents.json"
+     echo "[]" > "$MULTI_AGENT_ROOT/$comm_dir/tasks.json" 2>/dev/null && echo "SUCCESS: Cleaned tasks.json"  
+     echo "[]" > "$MULTI_AGENT_ROOT/$comm_dir/messages.json" 2>/dev/null && echo "SUCCESS: Cleaned messages.json"
+   fi
+ done
+ 
+ echo ""
+ echo "SUCCESS: Multi-agent system cleaned and ready for fresh start!"
+ echo "COMMANDS: To start agents again, use:"
+ echo "  python3 smart_launcher.py ai-development"
+ echo "  ./multi-agent start <role> <name>"
  ;;
  "help"|*)
  echo "Universal Multi-Agent AI System Help"

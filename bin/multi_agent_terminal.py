@@ -38,6 +38,10 @@ def colored_print(text: str, color: str = Colors.WHITE):
     """Print colored text"""
     print(f"{color}{text}{Colors.ENDC}")
 
+def colored_text(text, color):
+    """Return colored text without printing"""
+    return f"{color}{text}{Colors.ENDC}"
+
 # === Enhanced Agent System ===
 class AgentRole(Enum):
     COORDINATOR = "coordinator"
@@ -129,6 +133,57 @@ class AgentCommunication:
         """Get list of active agents"""
         agents = self.load_agents()
         return [agent for agent in agents if agent.get("status") == "active"]
+    
+    def unregister_agent(self, agent_id: str):
+        """Unregister/deactivate an agent"""
+        agents = self.load_agents()
+        
+        for agent in agents:
+            if agent["id"] == agent_id:
+                agent["status"] = "inactive"
+                agent["deactivated_at"] = datetime.now().isoformat()
+                break
+        
+        self.save_agents(agents)
+        colored_print(f"Agent {agent_id} unregistered/deactivated", Colors.YELLOW)
+    
+    def remove_agent(self, agent_id: str):
+        """Completely remove an agent from the system"""
+        agents = self.load_agents()
+        agents = [a for a in agents if a["id"] != agent_id]
+        self.save_agents(agents)
+        colored_print(f"Agent {agent_id} completely removed", Colors.RED)
+    
+    def get_agent_status(self, agent_id: str) -> Dict:
+        """Get status of a specific agent"""
+        agents = self.load_agents()
+        for agent in agents:
+            if agent["id"] == agent_id:
+                return agent
+        return None
+    
+    def kill_agent_by_pid(self, agent_id: str) -> bool:
+        """Kill agent process by PID"""
+        import signal
+        
+        agent_info = self.get_agent_status(agent_id)
+        if not agent_info:
+            return False
+        
+        pid = agent_info.get("pid")
+        if not pid:
+            return False
+        
+        try:
+            os.kill(pid, signal.SIGTERM)
+            colored_print(f"Sent SIGTERM to agent {agent_id} (PID: {pid})", Colors.YELLOW)
+            return True
+        except ProcessLookupError:
+            colored_print(f"Process {pid} for agent {agent_id} not found", Colors.YELLOW)
+            return False
+        except PermissionError:
+            colored_print(f"Permission denied to kill process {pid}", Colors.RED)
+            return False
     
     def load_tasks(self) -> List[Dict]:
         try:
@@ -255,6 +310,9 @@ class MultiAgentTerminal:
         self.running = True
         self.task_thread = threading.Thread(target=self.monitor_tasks, daemon=True)
         self.task_thread.start()
+        
+        # Check if this is a coordinator starting in guided mode
+        self.guided_mode = self.check_guided_mode()
     
     def load_history(self):
         """Load command history"""
@@ -269,16 +327,330 @@ class MultiAgentTerminal:
             readline.write_history_file(self.history_file)
         except:
             pass
-    
+            
+    def check_guided_mode(self):
+        """Check if this coordinator should start in guided mode (only coordinator active)"""
+        if self.role != AgentRole.COORDINATOR:
+            return False
+            
+        # Always start in guided mode for coordinator agents
+        # This provides a better user experience for new users
+        return True
+        
+    def show_guided_welcome(self):
+        """Show guided welcome message for new users"""
+        print()
+        colored_print("=" * 60, Colors.BRIGHT_YELLOW)
+        colored_print("  🤖 AI DEVELOPMENT ASSISTANT - WELCOME! 🤖", Colors.BRIGHT_GREEN)
+        colored_print("=" * 60, Colors.BRIGHT_YELLOW)
+        print()
+        colored_print("Hi! I'm your AI Development Coordinator.", Colors.BRIGHT_CYAN)
+        colored_print("I'll help you build amazing projects with AI assistance.", Colors.CYAN)
+        print()
+        colored_print("What would you like to do today?", Colors.WHITE)
+        print()
+        colored_print("OPTIONS:", Colors.BRIGHT_YELLOW)
+        colored_print("1. 'create project' - Start a new development project", Colors.GREEN)
+        colored_print("2. 'work on <project>' - Resume work on an existing project", Colors.GREEN) 
+        colored_print("3. 'spawn team' - Create a full AI development team", Colors.GREEN)
+        colored_print("4. 'help' - See all available commands", Colors.GREEN)
+        print()
+        colored_print("EXAMPLES:", Colors.BRIGHT_YELLOW)
+        colored_print("• 'create project' → I'll ask what you want to build", Colors.CYAN)
+        colored_print("• 'create react app' → Quick React project creation", Colors.CYAN)
+        colored_print("• 'create python project' → Quick Python project setup", Colors.CYAN)
+        colored_print("• 'spawn team' → Launch coder, reviewer, file manager, etc.", Colors.CYAN)
+        print()
+        colored_print("Just type what you want to do in natural language!", Colors.BRIGHT_GREEN)
+        print()
+        
+    def handle_guided_command(self, user_input):
+        """Handle commands in guided mode with natural language processing"""
+        input_lower = user_input.lower().strip()
+        
+        # PRIORITY 1: Delegation commands - check FIRST to avoid conflicts
+        if input_lower.startswith('delegate ') and ' to ' in input_lower:
+            return False  # Let main loop handle delegate commands normally
+        
+        # PRIORITY 2: Project creation commands
+        elif any(phrase in input_lower for phrase in ['create project', 'new project', 'start project']):
+            self.start_project_creation_flow()
+            return True
+        elif any(phrase in input_lower for phrase in ['create react', 'react app', 'react project']) and 'delegate' not in input_lower:
+            self.quick_create_project('react', 'React Application')
+            return True
+        elif any(phrase in input_lower for phrase in ['create python', 'python project', 'python app']) and 'delegate' not in input_lower:
+            self.quick_create_project('python', 'Python Application')
+            return True
+        elif any(phrase in input_lower for phrase in ['create vue', 'vue app', 'vue project']) and 'delegate' not in input_lower:
+            self.quick_create_project('vue', 'Vue Application')
+            return True
+        elif any(phrase in input_lower for phrase in ['create node', 'node app', 'nodejs']) and 'delegate' not in input_lower:
+            self.quick_create_project('nodejs', 'Node.js Application')
+            return True
+        
+        # Team management commands
+        elif any(phrase in input_lower for phrase in ['spawn team', 'create team', 'launch team', 'full team']):
+            self.spawn_development_team()
+            return True
+        elif any(phrase in input_lower for phrase in ['spawn agents', 'create agents', 'launch agents']):
+            self.spawn_development_team()
+            return True
+            
+        # Project management commands
+        elif input_lower.startswith('work on ') or input_lower.startswith('resume '):
+            project_name = input_lower.replace('work on ', '').replace('resume ', '').strip()
+            self.resume_project(project_name)
+            return True
+            
+        return False  # Not a guided command, process normally
+        
+    def start_project_creation_flow(self):
+        """Start interactive project creation flow"""
+        print()
+        colored_print("PROJECT CREATION WIZARD", Colors.BRIGHT_YELLOW)
+        colored_print("=" * 30, Colors.YELLOW)
+        print()
+        
+        try:
+            # Get project name
+            project_name = input(colored_text("What should we call your project? ", Colors.BRIGHT_CYAN)).strip()
+            if not project_name:
+                colored_print("ERROR: Project name is required!", Colors.RED)
+                return
+                
+            # Get project type
+            print()
+            colored_print("What type of project would you like to create?", Colors.BRIGHT_CYAN)
+            colored_print("1. React App (Frontend)", Colors.GREEN)
+            colored_print("2. Vue App (Frontend)", Colors.GREEN)
+            colored_print("3. Python Project (Backend/Scripts)", Colors.GREEN)
+            colored_print("4. Node.js App (Backend)", Colors.GREEN)
+            colored_print("5. Full-Stack (React + Python)", Colors.GREEN)
+            colored_print("6. Custom/Other", Colors.GREEN)
+            print()
+            
+            choice = input(colored_text("Enter your choice (1-6): ", Colors.BRIGHT_CYAN)).strip()
+            
+            project_types = {
+                '1': ('react', 'React Application'),
+                '2': ('vue', 'Vue Application'), 
+                '3': ('python', 'Python Project'),
+                '4': ('nodejs', 'Node.js Application'),
+                '5': ('fullstack', 'Full-Stack Application'),
+                '6': ('custom', 'Custom Project')
+            }
+            
+            if choice in project_types:
+                proj_type, proj_desc = project_types[choice]
+                print()
+                colored_print(f"Creating {proj_desc}: {project_name}", Colors.BRIGHT_GREEN)
+                
+                # Ask about AI team
+                print()
+                spawn_team = input(colored_text("Should I create a full AI development team for this project? (y/n): ", Colors.BRIGHT_CYAN)).strip().lower()
+                
+                # Create the project
+                self.create_project_with_type(project_name, proj_type, proj_desc)
+                
+                if spawn_team in ['y', 'yes', 'true', '1']:
+                    print()
+                    colored_print("Spawning AI development team...", Colors.BRIGHT_YELLOW)
+                    self.spawn_development_team()
+                    
+            else:
+                colored_print("Invalid choice! Please try again.", Colors.RED)
+                
+        except KeyboardInterrupt:
+            print()
+            colored_print("Project creation cancelled.", Colors.YELLOW)
+            
+    def quick_create_project(self, project_type, description):
+        """Quick project creation without wizard"""
+        try:
+            project_name = input(colored_text(f"Enter name for your {description}: ", Colors.BRIGHT_CYAN)).strip()
+            if project_name:
+                self.create_project_with_type(project_name, project_type, description)
+                
+                # Ask about team
+                spawn_team = input(colored_text("Create AI development team? (y/n): ", Colors.BRIGHT_CYAN)).strip().lower()
+                if spawn_team in ['y', 'yes']:
+                    self.spawn_development_team()
+            else:
+                colored_print("Project name required!", Colors.RED)
+        except KeyboardInterrupt:
+            print()
+            colored_print("Cancelled.", Colors.YELLOW)
+            
+    def create_project_with_type(self, project_name, project_type, description):
+        """Create project and delegate to file manager"""
+        print()
+        colored_print(f"Creating {description}: {project_name}", Colors.BRIGHT_GREEN)
+        
+        # Check if file_manager exists, if not spawn it temporarily
+        agents = self.comm.get_active_agents()
+        file_manager_exists = any(agent['role'] == 'file_manager' for agent in agents)
+        
+        if not file_manager_exists:
+            colored_print("Spawning file manager agent...", Colors.CYAN)
+            self.spawn_single_agent('file_manager', 'files')
+            # Give it a moment to register
+            import time
+            time.sleep(2)
+        
+        # Create task for file manager
+        task_description = f"Create {project_type} project '{project_name}' - {description}"
+        task_id = self.comm.create_task(
+            task_type='project_creation',
+            description=task_description,
+            assigned_to='files',  # file manager agent
+            created_by=self.agent_id,
+            priority=1,
+            data={'project_name': project_name, 'project_type': project_type, 'description': description}
+        )
+        
+        colored_print(f"SUCCESS: Project creation task assigned to file manager (Task #{task_id})", Colors.BRIGHT_GREEN)
+        colored_print(f"TIP: Use 'tasks' command to monitor progress", Colors.CYAN)
+        
+    def spawn_development_team(self):
+        """Spawn a complete AI development team"""
+        print()
+        colored_print("SPAWNING AI DEVELOPMENT TEAM", Colors.BRIGHT_YELLOW)
+        colored_print("=" * 35, Colors.YELLOW)
+        
+        agents_to_spawn = [
+            ('file_manager', 'files', 'Project structure and file management'),
+            ('coder', 'dev', 'Code writing and implementation'),  
+            ('code_reviewer', 'reviewer', 'Code quality and review'),
+            ('code_rewriter', 'fixer', 'Code optimization and fixes'),
+            ('git_manager', 'git', 'Version control management')
+        ]
+        
+        # Check which agents already exist
+        existing_agents = {agent['role'] for agent in self.comm.get_active_agents()}
+        
+        spawned = 0
+        for role, name, description in agents_to_spawn:
+            if role not in existing_agents:
+                colored_print(f"Spawning {description} agent ({name})...", Colors.CYAN)
+                success = self.spawn_single_agent(role, name)
+                if success:
+                    spawned += 1
+                    time.sleep(1)  # Prevent overwhelming the system
+            else:
+                colored_print(f"INFO: {role} agent already exists", Colors.YELLOW)
+                
+        print()
+        if spawned > 0:
+            colored_print(f"SUCCESS: Spawned {spawned} new agents!", Colors.BRIGHT_GREEN)
+            colored_print("TIP: Use 'agents' command to see your full team", Colors.CYAN)
+        else:
+            colored_print("INFO: All agents already exist", Colors.CYAN)
+            
+    def spawn_single_agent(self, role, name):
+        """Spawn a single agent in a new terminal"""
+        try:
+            import subprocess
+            import sys
+            import os
+            
+            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            agent_script = os.path.join(script_dir, "bin", "multi_agent_terminal.py")
+            
+            # Detect system type for terminal launching
+            system_type = self.detect_system()
+            
+            # Use terminal launch instead of background
+            if system_type == "wsl":
+                # WSL - launch in Windows Terminal
+                terminals = [
+                    ["wt.exe", "-w", "0", "new-tab", "--title", f"Agent: {role} ({name})", 
+                     "bash", "-c", f"cd '{script_dir}' && python3 '{agent_script}' '{name}' '{role}'"],
+                ]
+                
+                for terminal_cmd in terminals:
+                    try:
+                        subprocess.run(terminal_cmd, check=True, capture_output=True, text=True)
+                        return True
+                    except (FileNotFoundError, OSError):
+                        continue
+                        
+            elif system_type == "linux":
+                # Linux - try various terminal emulators
+                terminals = [
+                    ["gnome-terminal", "--", "bash", "-c", f"cd '{script_dir}' && python3 '{agent_script}' '{name}' '{role}'; exec bash"],
+                    ["xterm", "-e", f"cd '{script_dir}' && python3 '{agent_script}' '{name}' '{role}'; exec bash"],
+                    ["konsole", "-e", f"cd '{script_dir}' && python3 '{agent_script}' '{name}' '{role}'"],
+                ]
+                
+                for terminal_cmd in terminals:
+                    try:
+                        subprocess.Popen(terminal_cmd, cwd=script_dir)
+                        return True
+                    except (FileNotFoundError, OSError):
+                        continue
+            
+            # Fallback to background if no terminal available
+            colored_print(f"WARNING: No terminal emulator found, launching {role} agent in background", Colors.YELLOW)
+            subprocess.Popen([sys.executable, str(agent_script), name, role], 
+                           cwd=script_dir)
+            return True
+            
+        except Exception as e:
+            colored_print(f"ERROR: Failed to spawn {role} agent: {e}", Colors.RED)
+            return False
+            
+    def detect_system(self):
+        """Detect the operating system type"""
+        import platform
+        
+        if os.path.exists("/proc/version"):
+            with open("/proc/version", "r") as f:
+                if "microsoft" in f.read().lower():
+                    return "wsl"
+        
+        system = platform.system().lower()
+        if system == "linux":
+            return "linux"
+        elif system == "darwin":
+            return "macos" 
+        elif system == "windows":
+            return "windows"
+        else:
+            return "linux"
+            
+    def resume_project(self, project_name):
+        """Resume work on an existing project"""
+        project_path = os.path.join(self.workspace_dir, project_name)
+        if os.path.exists(project_path):
+            self.set_project_process(project_name)
+            colored_print(f"SUCCESS: Resumed work on project '{project_name}'", Colors.BRIGHT_GREEN)
+            colored_print(f"FOLDER: {project_path}", Colors.CYAN)
+        else:
+            colored_print(f"ERROR: Project '{project_name}' not found", Colors.RED)
+            colored_print("TIP: Use 'create project' to start a new one", Colors.CYAN)
+
     def detect_active_project_process(self):
         """Detect if there's an active project process in workspace"""
         try:
             workspace_items = os.listdir(self.workspace_dir)
-            project_dirs = [item for item in workspace_items if os.path.isdir(os.path.join(self.workspace_dir, item))]
+            # Filter out system directories and only consider actual project directories
+            system_dirs = {'.agent_comm', '__pycache__', '.git', '.vscode', 'node_modules'}
+            project_dirs = []
+            
+            for item in workspace_items:
+                if item not in system_dirs and os.path.isdir(os.path.join(self.workspace_dir, item)):
+                    # Check if it looks like an active project (has common project files)
+                    project_path = os.path.join(self.workspace_dir, item)
+                    project_indicators = ['package.json', 'requirements.txt', 'Cargo.toml', 'pom.xml', 'go.mod', '.project', 'main.py', 'app.py', 'index.js', 'App.js']
+                    
+                    if any(os.path.exists(os.path.join(project_path, indicator)) for indicator in project_indicators):
+                        project_dirs.append(item)
             
             if len(project_dirs) == 1:
-                # Single project - set as current
+                # Single active project - set as current
                 self.set_project_process(project_dirs[0])
+                colored_print(f"INFO: Detected active project: {project_dirs[0]}", Colors.CYAN)
             elif len(project_dirs) > 1:
                 colored_print(f"WARNING: Multiple projects detected: {', '.join(project_dirs)}", Colors.YELLOW)
                 colored_print(f"TIP: Use 'set_project <name>' to focus on one project process", Colors.CYAN)
@@ -487,6 +859,24 @@ This task requires AI model collaboration for detailed implementation guidance."
                 colored_print(f"Task monitoring error: {e}", Colors.RED)
                 time.sleep(5)
     
+    def handle_project_notification(self, task: Dict) -> Dict:
+        """Handle project change notifications from file manager"""
+        data = task.get('data', {})
+        project_name = data.get('project_name')
+        project_path = data.get('project_path')
+        
+        if project_name:
+            # Set this project as current for this agent too
+            self.set_project_process(project_name)
+            colored_print(f"NOTIFY: Agent {self.agent_id} now focused on project '{project_name}'", Colors.BRIGHT_YELLOW)
+        
+        return {
+            "type": "project_notification_received",
+            "project_name": project_name,
+            "agent_id": self.agent_id,
+            "message": f"Agent {self.agent_id} updated to work on project '{project_name}'"
+        }
+    
     def handle_task(self, task: Dict):
         """Handle a task assigned to this agent"""
         task_id = task["id"]
@@ -499,7 +889,10 @@ This task requires AI model collaboration for detailed implementation guidance."
         self.comm.update_task_status(task_id, TaskStatus.IN_PROGRESS)
         
         try:
-            if self.role == AgentRole.CODER:
+            # Handle project notifications first (all agents can receive these)
+            if task_type == 'project_notification':
+                result = self.handle_project_notification(task)
+            elif self.role == AgentRole.CODER:
                 if "code" in task_type.lower() or "generate" in task_type.lower():
                     result = self.handle_code_generation_task(task)
                 else:
@@ -900,11 +1293,12 @@ Implementation:"""
         
         # Create detailed task with structured issue list
         task_id = self.comm.create_task(
-            description=rewriter_task_description,
             task_type="code_rewrite_from_review",
+            description=rewriter_task_description,
             assigned_to="code_rewriter",
-            priority="normal",
-            metadata={
+            created_by=self.agent_id,
+            priority=1,
+            data={
                 "review_report": review_result,
                 "total_issues": len(issues),
                 "critical_issues": len([i for i in issues if i.get("severity") == "CRITICAL"]),
@@ -927,7 +1321,7 @@ Implementation:"""
         if self.is_edit_task(description):
             return self.handle_file_edit_task(description)
         else:
-            return self.handle_file_create_task(description)
+            return self.handle_file_create_task(task)
     
     def is_edit_task(self, description: str) -> bool:
         """Determine if this is an edit task or create task"""
@@ -935,22 +1329,691 @@ Implementation:"""
         desc_lower = description.lower()
         return any(keyword in desc_lower for keyword in edit_keywords)
     
-    def handle_file_create_task(self, description: str) -> Dict:
-        """Handle file creation tasks"""
-        # Extract project information from description
-        project_info = self.analyze_project_requirements(description)
+    def handle_file_create_task(self, task: Dict) -> Dict:
+        """Handle file creation tasks - Enhanced with auto project location"""
+        description = task["description"]
+        task_data = task.get("data", {})
         
-        # Create project structure
-        project_path = self.create_project_structure(project_info)
+        colored_print(f"FILE MANAGER: Processing creation task", Colors.BRIGHT_YELLOW)
+        colored_print(f"   Task: {description}", Colors.WHITE)
+        
+        # STEP 1: Auto-locate existing project directory FIRST
+        existing_project = self.auto_locate_project_directory(description, task_data)
+        
+        if existing_project:
+            # Use existing project - create files within it
+            project_path = existing_project["path"]
+            project_name = existing_project["name"]
+            
+            colored_print(f"   FOUND: Located existing project '{project_name}'", Colors.BRIGHT_GREEN)
+            colored_print(f"   PATH: {project_path}", Colors.GREEN)
+            
+            # Auto-set project focus for all file operations
+            self.set_project_process(project_name)
+            
+            # Create the requested component/file within existing project
+            result = self.create_component_in_existing_project(project_path, description, task_data)
+            
+            return {
+                "type": "file_management_completed",
+                "project_path": project_path,
+                "project_name": project_name,
+                "component_created": result.get("component_name"),
+                "files_created": result.get("files_created", []),
+                "message": f"Successfully created component in existing project '{project_name}'"
+            }
+        
+        else:
+            # No existing project - create new project structure
+            colored_print(f"   INFO: No existing project found, creating new project", Colors.CYAN)
+            
+            # Extract project information from task data and description
+            project_info = self.analyze_project_requirements(description, task_data)
+            
+            # Create project structure
+            project_path = self.create_project_structure(project_info)
+            
+            return {
+                "type": "file_management_completed",
+                "project_path": project_path,
+                "project_info": project_info,
+                "message": f"Successfully created project structure at {project_path}",
+                "files_created": self.list_created_files(project_path)
+            }
+    
+    def auto_locate_project_directory(self, description: str, task_data: Dict = None) -> Dict:
+        """Automatically locate existing project directory without creating UnknownProject"""
+        import os
+        
+        colored_print(f"   AUTO: Scanning workspace for existing projects...", Colors.CYAN)
+        
+        # PRIORITY 1: Use current project if already set
+        if hasattr(self, 'current_project_process') and self.current_project_process:
+            current_path = os.path.join(self.workspace_dir, self.current_project_process)
+            if os.path.exists(current_path):
+                colored_print(f"   CURRENT: Using active project '{self.current_project_process}'", Colors.BRIGHT_GREEN)
+                return {
+                    "name": self.current_project_process,
+                    "path": current_path,
+                    "source": "current_project"
+                }
+        
+        # PRIORITY 2: Look for project name in task data
+        if task_data and 'project_name' in task_data:
+            project_name = task_data['project_name']
+            project_path = os.path.join(self.workspace_dir, project_name)
+            if os.path.exists(project_path):
+                colored_print(f"   TASK_DATA: Found project '{project_name}' from task data", Colors.BRIGHT_GREEN)
+                return {
+                    "name": project_name,
+                    "path": project_path,
+                    "source": "task_data"
+                }
+        
+        # PRIORITY 3: Scan all existing projects in workspace
+        existing_projects = []
+        if os.path.exists(self.workspace_dir):
+            for item in os.listdir(self.workspace_dir):
+                item_path = os.path.join(self.workspace_dir, item)
+                if os.path.isdir(item_path) and not item.startswith('.'):
+                    # Analyze if this is a valid project directory
+                    project_info = self.analyze_existing_project_structure(item_path)
+                    if project_info:
+                        existing_projects.append({
+                            "name": item,
+                            "path": item_path,
+                            "framework": project_info.get("framework"),
+                            "suitability": self.calculate_project_suitability(item_path, description)
+                        })
+        
+        if existing_projects:
+            colored_print(f"   SCAN: Found {len(existing_projects)} existing projects", Colors.CYAN)
+            for proj in existing_projects:
+                colored_print(f"      • {proj['name']} ({proj['framework']}) - Suitability: {proj['suitability']}", Colors.CYAN)
+            
+            # PRIORITY 4: Use most suitable existing project
+            best_project = max(existing_projects, key=lambda x: x['suitability'])
+            if best_project['suitability'] > 0.3:  # Minimum suitability threshold
+                colored_print(f"   BEST_MATCH: Selected '{best_project['name']}' (suitability: {best_project['suitability']:.2f})", Colors.BRIGHT_GREEN)
+                return {
+                    "name": best_project['name'],
+                    "path": best_project['path'],
+                    "source": "auto_selected",
+                    "suitability": best_project['suitability']
+                }
+        
+        colored_print(f"   RESULT: No suitable existing project found", Colors.YELLOW)
+        return None
+    
+    def analyze_existing_project_structure(self, project_path: str) -> Dict:
+        """Analyze an existing directory to determine if it's a valid project"""
+        import os
+        
+        project_info = {"framework": "unknown", "is_valid_project": False}
+        
+        try:
+            files = os.listdir(project_path)
+            
+            # Check for common project indicators
+            if "package.json" in files:
+                project_info["framework"] = "javascript/node"
+                project_info["is_valid_project"] = True
+            elif "requirements.txt" in files or "setup.py" in files:
+                project_info["framework"] = "python"
+                project_info["is_valid_project"] = True
+            elif "pom.xml" in files:
+                project_info["framework"] = "java"
+                project_info["is_valid_project"] = True
+            elif "Cargo.toml" in files:
+                project_info["framework"] = "rust"
+                project_info["is_valid_project"] = True
+            elif "src" in files or "components" in files:
+                project_info["is_valid_project"] = True
+                
+                # Check deeper for React/Vue indicators
+                src_path = os.path.join(project_path, "src")
+                if os.path.exists(src_path):
+                    src_files = os.listdir(src_path)
+                    if any(".jsx" in f for f in src_files):
+                        project_info["framework"] = "react"
+                    elif any(".vue" in f for f in src_files):
+                        project_info["framework"] = "vue"
+                    elif "App.js" in src_files:
+                        project_info["framework"] = "react"
+        except:
+            pass
+        
+        return project_info if project_info["is_valid_project"] else None
+    
+    def calculate_project_suitability(self, project_path: str, task_description: str) -> float:
+        """Calculate how suitable an existing project is for the given task"""
+        import os
+        
+        suitability = 0.0
+        desc_lower = task_description.lower()
+        project_name = os.path.basename(project_path).lower()
+        
+        # Name matching
+        if "time" in desc_lower and "time" in project_name:
+            suitability += 0.8
+        elif "todo" in desc_lower and "todo" in project_name:
+            suitability += 0.8
+        elif "app" in desc_lower and "app" in project_name:
+            suitability += 0.4
+        
+        # Component matching
+        try:
+            # Check if project has similar components already
+            if os.path.exists(os.path.join(project_path, "src", "components")):
+                components_dir = os.path.join(project_path, "src", "components")
+                component_files = os.listdir(components_dir)
+                
+                if "time" in desc_lower:
+                    if any("time" in f.lower() for f in component_files):
+                        suitability += 0.5
+                if "date" in desc_lower:
+                    if any("date" in f.lower() for f in component_files):
+                        suitability += 0.5
+                        
+                # Base suitability for having components directory
+                suitability += 0.2
+        except:
+            pass
+        
+        # Framework compatibility
+        project_info = self.analyze_existing_project_structure(project_path)
+        if project_info:
+            if ("react" in desc_lower and project_info.get("framework") == "react") or \
+               ("vue" in desc_lower and project_info.get("framework") == "vue") or \
+               ("javascript" in desc_lower and "javascript" in project_info.get("framework", "")):
+                suitability += 0.3
+        
+        return min(suitability, 1.0)  # Cap at 1.0
+    
+    def analyze_component_requirements(self, description: str, project_path: str) -> Dict:
+        """Analyze what component needs to be created"""
+        import os
+        
+        desc_lower = description.lower()
+        component_info = {
+            "name": "UnknownComponent",
+            "type": "generic",
+            "features": [],
+            "target_dir": "src/components"
+        }
+        
+        # Detect component name and type
+        if "time" in desc_lower:
+            component_info["name"] = "TimeComponent"
+            component_info["type"] = "display"
+            component_info["features"] = ["time_display", "real_time_updates", "formatting"]
+        elif "date" in desc_lower:
+            component_info["name"] = "DateComponent"  
+            component_info["type"] = "display"
+            component_info["features"] = ["date_display", "formatting"]
+        elif "week" in desc_lower:
+            component_info["name"] = "WeekComponent"
+            component_info["type"] = "display"
+            component_info["features"] = ["week_number", "week_display"]
+        elif "todo" in desc_lower or "task" in desc_lower:
+            component_info["name"] = "TodoComponent"
+            component_info["type"] = "interactive"
+            component_info["features"] = ["add_task", "remove_task", "mark_complete"]
+        elif "button" in desc_lower:
+            component_info["name"] = "Button"
+            component_info["type"] = "ui"
+            component_info["features"] = ["clickable", "customizable"]
+        
+        # Determine target directory based on project structure
+        if os.path.exists(os.path.join(project_path, "src", "components")):
+            component_info["target_dir"] = "src/components"
+        elif os.path.exists(os.path.join(project_path, "components")):
+            component_info["target_dir"] = "components"
+        elif os.path.exists(os.path.join(project_path, "src")):
+            component_info["target_dir"] = "src"
+        else:
+            component_info["target_dir"] = "."
+        
+        colored_print(f"      Component: {component_info['name']} ({component_info['type']})", Colors.YELLOW)
+        colored_print(f"      Target: {component_info['target_dir']}", Colors.YELLOW)
+        colored_print(f"      Features: {', '.join(component_info['features'])}", Colors.YELLOW)
+        
+        return component_info
+    
+    def get_project_structure_context(self, project_path: str) -> str:
+        """Get project structure context for AI model"""
+        import os
+        
+        context = f"PROJECT STRUCTURE ANALYSIS:\n"
+        context += f"Project Path: {project_path}\n\n"
+        
+        try:
+            # Get directory structure
+            context += "DIRECTORY STRUCTURE:\n"
+            for root, dirs, files in os.walk(project_path):
+                level = root.replace(project_path, '').count(os.sep)
+                indent = '  ' * level
+                context += f"{indent}{os.path.basename(root)}/\n"
+                
+                sub_indent = '  ' * (level + 1)
+                for file in files[:10]:  # Limit to first 10 files per directory
+                    context += f"{sub_indent}{file}\n"
+                    
+                if len(files) > 10:
+                    context += f"{sub_indent}... ({len(files) - 10} more files)\n"
+                
+                # Don't go too deep
+                if level > 3:
+                    dirs[:] = []
+            
+            # Analyze key files for patterns
+            context += "\nKEY FILES ANALYSIS:\n"
+            
+            # Check package.json for project type
+            package_json_path = os.path.join(project_path, "package.json")
+            if os.path.exists(package_json_path):
+                try:
+                    import json
+                    with open(package_json_path, 'r') as f:
+                        package_data = json.load(f)
+                        context += f"Framework: {package_data.get('name', 'Unknown')}\n"
+                        if 'dependencies' in package_data:
+                            deps = list(package_data['dependencies'].keys())[:5]
+                            context += f"Dependencies: {', '.join(deps)}\n"
+                except:
+                    context += "Framework: JavaScript project (package.json found)\n"
+            
+            # Check for existing components
+            components_dir = os.path.join(project_path, "src", "components")
+            if os.path.exists(components_dir):
+                existing_components = [f for f in os.listdir(components_dir) 
+                                     if f.endswith(('.js', '.jsx', '.vue', '.ts', '.tsx'))]
+                if existing_components:
+                    context += f"Existing Components: {', '.join(existing_components[:5])}\n"
+            
+        except Exception as e:
+            context += f"Error analyzing structure: {e}\n"
+        
+        return context
+    
+    def execute_ai_component_creation(self, project_path: str, component_info: Dict, ai_result: Dict) -> list:
+        """Execute component creation based on AI analysis"""
+        import os
+        
+        files_created = []
+        
+        try:
+            # Parse AI output for file creation instructions
+            implementation = ai_result.get('implementation', '')
+            
+            # This would normally parse the AI output to extract file paths and content
+            # For now, create a basic component file
+            
+            target_dir = os.path.join(project_path, component_info['target_dir'])
+            os.makedirs(target_dir, exist_ok=True)
+            
+            # Determine file extension based on project
+            project_info = self.analyze_existing_project_structure(project_path)
+            
+            if project_info and project_info.get('framework') == 'react':
+                file_extension = '.jsx'
+            elif project_info and project_info.get('framework') == 'vue':
+                file_extension = '.vue'
+            else:
+                file_extension = '.js'
+            
+            # Create the component file
+            component_file = os.path.join(target_dir, f"{component_info['name']}{file_extension}")
+            
+            # Generate component content using AI result
+            component_content = self.generate_component_content(component_info, ai_result, file_extension)
+            
+            with open(component_file, 'w') as f:
+                f.write(component_content)
+            
+            files_created.append(component_file)
+            colored_print(f"      Created: {os.path.relpath(component_file, project_path)}", Colors.GREEN)
+            
+        except Exception as e:
+            colored_print(f"   ERROR: Failed to create AI component: {e}", Colors.RED)
+            files_created = self.create_fallback_component(project_path, component_info)
+        
+        return files_created
+    
+    def create_fallback_component(self, project_path: str, component_info: Dict) -> list:
+        """Create a basic fallback component if AI fails"""
+        import os
+        
+        files_created = []
+        
+        try:
+            target_dir = os.path.join(project_path, component_info['target_dir'])
+            os.makedirs(target_dir, exist_ok=True)
+            
+            # Create basic React component
+            component_file = os.path.join(target_dir, f"{component_info['name']}.jsx")
+            
+            component_content = f"""import React from 'react';
+
+const {component_info['name']} = () => {{
+    return (
+        <div className="{component_info['name'].lower()}-component">
+            <h3>{component_info['name']}</h3>
+            <p>Component created by File Manager</p>
+            {self.generate_feature_elements(component_info['features'])}
+        </div>
+    );
+}};
+
+export default {component_info['name']};
+"""
+            
+            with open(component_file, 'w') as f:
+                f.write(component_content)
+            
+            files_created.append(component_file)
+            colored_print(f"      Created: {os.path.relpath(component_file, project_path)}", Colors.GREEN)
+            
+        except Exception as e:
+            colored_print(f"   ERROR: Failed to create fallback component: {e}", Colors.RED)
+        
+        return files_created
+    
+    def generate_feature_elements(self, features: list) -> str:
+        """Generate JSX elements based on component features"""
+        elements = ""
+        
+        if "time_display" in features:
+            elements += "\n            <div className='time-display'>{new Date().toLocaleTimeString()}</div>"
+        if "date_display" in features:
+            elements += "\n            <div className='date-display'>{new Date().toLocaleDateString()}</div>"
+        if "week_number" in features:
+            elements += "\n            <div className='week-number'>Week {Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000))}</div>"
+        
+        return elements
+    
+    def generate_component_content(self, component_info: Dict, ai_result: Dict, file_extension: str) -> str:
+        """Generate component content based on AI result and component info"""
+        
+        # If AI provided detailed implementation, use it
+        implementation = ai_result.get('implementation', '')
+        
+        if implementation and len(implementation) > 100:
+            return implementation
+        
+        # Otherwise, generate based on component info
+        if file_extension == '.jsx':
+            return self.generate_react_component(component_info)
+        elif file_extension == '.vue':
+            return self.generate_vue_component(component_info)
+        else:
+            return self.generate_js_component(component_info)
+    
+    def generate_react_component(self, component_info: Dict) -> str:
+        """Generate a React component"""
+        name = component_info['name']
+        features = component_info.get('features', [])
+        
+        return f"""import React, {{ useState, useEffect }} from 'react';
+
+const {name} = () => {{
+    {self.generate_react_hooks(features)}
+
+    return (
+        <div className="{name.lower()}-container">
+            <h2>{name}</h2>
+            {self.generate_react_jsx(features)}
+        </div>
+    );
+}};
+
+export default {name};
+"""
+    
+    def generate_react_hooks(self, features: list) -> str:
+        """Generate React hooks based on features"""
+        hooks = []
+        
+        if any(f in features for f in ["time_display", "real_time_updates"]):
+            hooks.append("const [currentTime, setCurrentTime] = useState(new Date());")
+            hooks.append("""
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+        
+        return () => clearInterval(timer);
+    }, []);""")
+        
+        return "\n    ".join(hooks)
+    
+    def generate_react_jsx(self, features: list) -> str:
+        """Generate React JSX based on features"""
+        jsx_elements = []
+        
+        if "time_display" in features:
+            jsx_elements.append("<div className='time'>{currentTime.toLocaleTimeString()}</div>")
+        if "date_display" in features:
+            jsx_elements.append("<div className='date'>{currentTime.toLocaleDateString()}</div>")
+        if "week_number" in features:
+            jsx_elements.append("<div className='week'>Week {Math.ceil((currentTime - new Date(currentTime.getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000))}</div>")
+        
+        if not jsx_elements:
+            jsx_elements.append("<p>Component ready for customization</p>")
+        
+        return "\n            ".join(jsx_elements)
+    
+    def generate_vue_component(self, component_info: Dict) -> str:
+        """Generate a Vue component"""
+        name = component_info['name']
+        features = component_info.get('features', [])
+        
+        return f"""<template>
+    <div class="{name.lower()}-container">
+        <h2>{name}</h2>
+        {self.generate_vue_template(features)}
+    </div>
+</template>
+
+<script>
+export default {{
+    name: '{name}',
+    {self.generate_vue_script(features)}
+}};
+</script>
+
+<style scoped>
+.{name.lower()}-container {{
+    padding: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}}
+</style>
+"""
+    
+    def generate_vue_template(self, features: list) -> str:
+        """Generate Vue template based on features"""
+        template_elements = []
+        
+        if "time_display" in features:
+            template_elements.append("<div class='time'>{{ currentTime.toLocaleTimeString() }}</div>")
+        if "date_display" in features:
+            template_elements.append("<div class='date'>{{ currentTime.toLocaleDateString() }}</div>")
+        if "week_number" in features:
+            template_elements.append("<div class='week'>Week {{ weekNumber }}</div>")
+        
+        if not template_elements:
+            template_elements.append("<p>Component ready for customization</p>")
+        
+        return "\n        ".join(template_elements)
+    
+    def generate_vue_script(self, features: list) -> str:
+        """Generate Vue script section based on features"""
+        if any(f in features for f in ["time_display", "real_time_updates", "week_number"]):
+            return """data() {
+        return {
+            currentTime: new Date()
+        };
+    },
+    computed: {
+        weekNumber() {
+            const startOfYear = new Date(this.currentTime.getFullYear(), 0, 1);
+            return Math.ceil((this.currentTime - startOfYear) / (7 * 24 * 60 * 60 * 1000));
+        }
+    },
+    mounted() {
+        this.timer = setInterval(() => {
+            this.currentTime = new Date();
+        }, 1000);
+    },
+    beforeUnmount() {
+        if (this.timer) {
+            clearInterval(this.timer);
+        }
+    }"""
+        else:
+            return """data() {
+        return {};
+    }"""
+    
+    def generate_js_component(self, component_info: Dict) -> str:
+        """Generate a JavaScript component"""
+        name = component_info['name']
+        features = component_info.get('features', [])
+        
+        return f"""class {name} {{
+    constructor(container) {{
+        this.container = container;
+        {self.generate_js_properties(features)}
+        this.init();
+    }}
+    
+    init() {{
+        this.render();
+        {self.generate_js_init(features)}
+    }}
+    
+    render() {{
+        this.container.innerHTML = `
+            <div class="{name.lower()}-component">
+                <h2>{name}</h2>
+                {self.generate_js_html(features)}
+            </div>
+        `;
+    }}
+    
+    {self.generate_js_methods(features)}
+}}
+
+export default {name};
+"""
+    
+    def generate_js_properties(self, features: list) -> str:
+        """Generate JavaScript properties based on features"""
+        if any(f in features for f in ["time_display", "real_time_updates"]):
+            return "this.currentTime = new Date();"
+        return ""
+    
+    def generate_js_init(self, features: list) -> str:
+        """Generate JavaScript initialization based on features"""
+        if any(f in features for f in ["time_display", "real_time_updates"]):
+            return """this.timer = setInterval(() => {
+            this.currentTime = new Date();
+            this.updateDisplay();
+        }, 1000);"""
+        return ""
+    
+    def generate_js_html(self, features: list) -> str:
+        """Generate JavaScript HTML based on features"""
+        html_elements = []
+        
+        if "time_display" in features:
+            html_elements.append("<div class='time' id='time-display'></div>")
+        if "date_display" in features:
+            html_elements.append("<div class='date' id='date-display'></div>")
+        if "week_number" in features:
+            html_elements.append("<div class='week' id='week-display'></div>")
+        
+        if not html_elements:
+            html_elements.append("<p>Component ready for customization</p>")
+        
+        return "\\n                ".join(html_elements)
+    
+    def generate_js_methods(self, features: list) -> str:
+        """Generate JavaScript methods based on features"""
+        if any(f in features for f in ["time_display", "real_time_updates", "date_display", "week_number"]):
+            return """updateDisplay() {
+        const timeEl = this.container.querySelector('#time-display');
+        const dateEl = this.container.querySelector('#date-display');
+        const weekEl = this.container.querySelector('#week-display');
+        
+        if (timeEl) timeEl.textContent = this.currentTime.toLocaleTimeString();
+        if (dateEl) dateEl.textContent = this.currentTime.toLocaleDateString();
+        if (weekEl) {
+            const startOfYear = new Date(this.currentTime.getFullYear(), 0, 1);
+            const weekNumber = Math.ceil((this.currentTime - startOfYear) / (7 * 24 * 60 * 60 * 1000));
+            weekEl.textContent = `Week ${weekNumber}`;
+        }
+    }
+    
+    destroy() {
+        if (this.timer) {
+            clearInterval(this.timer);
+        }
+    }"""
+        else:
+            return """// Add custom methods here"""
+    
+    def create_component_in_existing_project(self, project_path: str, description: str, task_data: Dict = None) -> Dict:
+        """Create a component/file within an existing project"""
+        import os
+        
+        colored_print(f"   COMPONENT: Creating component in existing project", Colors.BRIGHT_YELLOW)
+        
+        # Analyze what component to create
+        component_info = self.analyze_component_requirements(description, project_path)
+        
+        # Send project structure context to AI model for intelligent file placement
+        project_context = self.get_project_structure_context(project_path)
+        
+        # Create standardized AI input with project context
+        standardized_input = self.create_standardized_ai_input(
+            operation_type="COMPONENT_CREATION",
+            task_description=f"Create component in existing project: {description}",
+            context_type="EXISTING_PROJECT_ENHANCEMENT",
+            requirements=[
+                f"Component: {component_info.get('name', 'Unknown')}",
+                f"Type: {component_info.get('type', 'generic')}",
+                f"Features: {', '.join(component_info.get('features', []))}",
+                f"Target directory: {component_info.get('target_dir', 'src/components')}"
+            ],
+            constraints=[
+                "Analyze existing project structure and follow established patterns",
+                "Use same coding style and conventions as existing files", 
+                "Integrate seamlessly with existing components and architecture",
+                "Place files in appropriate directories based on project structure"
+            ],
+            expected_output="COMPONENT_FILES_AND_INTEGRATION",
+            project_context=project_context
+        )
+        
+        # Execute AI-powered component creation
+        ai_result = self.execute_standardized_ai_operation(standardized_input)
+        
+        files_created = []
+        if ai_result.get('status') == 'success':
+            files_created = self.execute_ai_component_creation(project_path, component_info, ai_result)
+        else:
+            files_created = self.create_fallback_component(project_path, component_info)
+        
+        colored_print(f"   SUCCESS: Created component '{component_info.get('name')}' with {len(files_created)} files", Colors.BRIGHT_GREEN)
         
         return {
-            "type": "file_management_completed",
-            "project_path": project_path,
-            "project_info": project_info,
-            "message": f"Successfully created project structure at {project_path}",
-            "files_created": self.list_created_files(project_path)
+            "component_name": component_info.get('name'),
+            "files_created": files_created,
+            "target_directory": component_info.get('target_dir')
         }
-    
+
     def handle_file_edit_task(self, description: str) -> Dict:
         """Handle file editing tasks"""
         colored_print(f"️ FILE EDITOR: Processing file edit request", Colors.BRIGHT_YELLOW)
@@ -985,6 +2048,13 @@ Implementation:"""
         """Find the project that needs to be edited"""
         import os
         
+        # FIRST PRIORITY: Use current project if set
+        if hasattr(self, 'current_project_process') and self.current_project_process:
+            current_project_path = os.path.join(self.workspace_dir, self.current_project_process)
+            if os.path.exists(current_project_path):
+                colored_print(f"   AUTO: Using current project: {self.current_project_process}", Colors.BRIGHT_GREEN)
+                return current_project_path
+        
         # Extract project name from description
         desc_lower = description.lower()
         
@@ -1001,11 +2071,14 @@ Implementation:"""
         # Try to match project name from description
         for project in workspace_projects:
             if project.lower() in desc_lower:
+                colored_print(f"   MATCH: Found project '{project}' mentioned in task description", Colors.YELLOW)
                 return os.path.join(self.workspace_dir, project)
         
-        # If only one project exists, use it
+        # If only one project exists, use it and set as current
         if len(workspace_projects) == 1:
             colored_print(f"   TARGET: Using only available project: {workspace_projects[0]}", Colors.CYAN)
+            # Auto-set as current project
+            self.set_project_process(workspace_projects[0])
             return os.path.join(self.workspace_dir, workspace_projects[0])
         
         # Check for common project names
@@ -1014,8 +2087,11 @@ Implementation:"""
             if name in desc_lower:
                 for project in workspace_projects:
                     if name in project.lower():
+                        colored_print(f"   COMMON: Matched common name '{name}' to project '{project}'", Colors.YELLOW)
                         return os.path.join(self.workspace_dir, project)
         
+        # No project found
+        colored_print(f"   WARNING: No suitable project found for editing. Available: {workspace_projects}", Colors.RED)
         return None
     
     def analyze_edit_requirements(self, description: str) -> Dict:
@@ -1238,8 +2314,8 @@ Implementation:"""
         colored_print(f"", Colors.CYAN)
         colored_print(f"       This task requires AI model collaboration for actual implementation.", Colors.MAGENTA)
     
-    def analyze_project_requirements(self, description: str) -> Dict:
-        """Analyze project requirements from description"""
+    def analyze_project_requirements(self, description: str, task_data: Dict = None) -> Dict:
+        """Analyze project requirements from task data and description"""
         desc_lower = description.lower()
         
         project_info = {
@@ -1249,18 +2325,32 @@ Implementation:"""
             "features": []
         }
         
-        # Extract project name
-        if "timedisplayapp" in desc_lower or "time display app" in desc_lower:
-            project_info["name"] = "TimeDisplayApp"
-        elif "todoapp" in desc_lower or "todo app" in desc_lower:
-            project_info["name"] = "TodoApp"
-        elif "project" in desc_lower:
-            # Try to extract project name
-            words = description.split()
-            for i, word in enumerate(words):
-                if word.lower() in ["project", "app", "application"] and i > 0:
-                    project_info["name"] = words[i-1].replace(",", "").replace(".", "")
-                    break
+        # FIRST PRIORITY: Use task data if available
+        if task_data:
+            if 'project_name' in task_data:
+                project_info["name"] = task_data['project_name']
+                colored_print(f"   DATA: Using project name from task data: {project_info['name']}", Colors.BRIGHT_GREEN)
+            
+            if 'project_type' in task_data:
+                project_info["framework"] = task_data['project_type']
+                colored_print(f"   DATA: Using project type from task data: {project_info['framework']}", Colors.BRIGHT_GREEN)
+            
+            if 'description' in task_data:
+                project_info["description"] = task_data['description']
+        
+        # FALLBACK: Extract project name from description if not in task data
+        if project_info["name"] == "UnknownProject":
+            if "timedisplayapp" in desc_lower or "time display app" in desc_lower:
+                project_info["name"] = "TimeDisplayApp"
+            elif "todoapp" in desc_lower or "todo app" in desc_lower:
+                project_info["name"] = "TodoApp"
+            elif "project" in desc_lower:
+                # Try to extract project name
+                words = description.split()
+                for i, word in enumerate(words):
+                    if word.lower() in ["project", "app", "application"] and i > 0:
+                        project_info["name"] = words[i-1].replace(",", "").replace(".", "")
+                        break
         
         # Detect framework
         if "react" in desc_lower:
@@ -1334,8 +2424,46 @@ Implementation:"""
         else:
             self.create_universal_fallback_structure(project_path, project_info)
         
+        # Automatically set this as the current project for the file manager
+        self.auto_set_project_focus(project_name, project_path)
+        
         colored_print(f"SUCCESS: UNIVERSAL PROJECT CREATED: {project_path}", Colors.BRIGHT_GREEN)
+        colored_print(f"AUTO: Project '{project_name}' set as current working directory", Colors.BRIGHT_YELLOW)
         return project_path
+    
+    def auto_set_project_focus(self, project_name: str, project_path: str):
+        """Automatically set the current project for file manager operations"""
+        
+        # Set the current project for this file manager instance
+        self.set_project_process(project_name)
+        
+        # Also broadcast to all other agents that this is the active project
+        self.broadcast_project_change(project_name, project_path)
+        
+        colored_print(f"   AUTO: File manager now focused on project '{project_name}'", Colors.CYAN)
+        colored_print(f"   NOTIFY: All agents notified of new active project", Colors.CYAN)
+    
+    def broadcast_project_change(self, project_name: str, project_path: str):
+        """Notify all agents about the new active project"""
+        
+        # Get all active agents
+        active_agents = self.comm.get_active_agents()
+        
+        # Send project notification task to all agents
+        for agent in active_agents:
+            if agent['id'] != self.agent_id:  # Don't send to self
+                self.comm.create_task(
+                    task_type='project_notification',
+                    description=f"Project '{project_name}' is now active",
+                    assigned_to=agent['id'],
+                    created_by=self.agent_id,
+                    priority=5,  # Low priority notification
+                    data={
+                        'project_name': project_name,
+                        'project_path': project_path,
+                        'notification_type': 'project_focus_change'
+                    }
+                )
     
     def execute_ai_project_creation(self, project_path: str, project_info: Dict, ai_result: Dict):
         """Execute project creation based on AI analysis"""
@@ -2116,6 +3244,162 @@ export default {component_name};'''
         """Handle general tasks"""
         return {"message": f"General task handled: {task['description']}"}
 
+    def kill_agent(self, agent_name: str):
+        """Kill and remove a faulty agent"""
+        colored_print(f"AGENT MANAGEMENT: Killing agent '{agent_name}'", Colors.BRIGHT_RED)
+        
+        # Find agent by name or ID
+        agents = self.comm.get_active_agents()
+        target_agent = None
+        
+        for agent in agents:
+            if agent['id'] == agent_name or agent['role'] == agent_name:
+                target_agent = agent
+                break
+        
+        if not target_agent:
+            colored_print(f"ERROR: Agent '{agent_name}' not found", Colors.RED)
+            return
+        
+        # Kill the process
+        killed = self.comm.kill_agent_by_pid(target_agent['id'])
+        
+        # Remove from registry
+        self.comm.remove_agent(target_agent['id'])
+        
+        if killed:
+            colored_print(f"SUCCESS: Agent '{agent_name}' killed and removed", Colors.GREEN)
+        else:
+            colored_print(f"WARNING: Agent '{agent_name}' removed from registry (process may have already stopped)", Colors.YELLOW)
+    
+    def restart_agent(self, agent_name: str):
+        """Restart a specific agent"""
+        colored_print(f"AGENT MANAGEMENT: Restarting agent '{agent_name}'", Colors.BRIGHT_YELLOW)
+        
+        # Find agent info
+        agents = self.comm.get_active_agents()
+        target_agent = None
+        
+        for agent in agents:
+            if agent['id'] == agent_name or agent['role'] == agent_name:
+                target_agent = agent
+                break
+        
+        if not target_agent:
+            colored_print(f"ERROR: Agent '{agent_name}' not found", Colors.RED)
+            return
+        
+        # Kill existing process
+        self.comm.kill_agent_by_pid(target_agent['id'])
+        
+        # Wait a moment
+        import time
+        time.sleep(1)
+        
+        # Spawn new instance
+        role = target_agent['role']
+        agent_id = target_agent['id']
+        
+        colored_print(f"RESTART: Spawning new instance of {role} agent", Colors.CYAN)
+        success = self.spawn_single_agent(role, agent_id)
+        
+        if success:
+            colored_print(f"SUCCESS: Agent '{agent_name}' restarted", Colors.GREEN)
+        else:
+            colored_print(f"ERROR: Failed to restart agent '{agent_name}'", Colors.RED)
+    
+    def show_agent_status(self, agent_name: str):
+        """Show detailed status of a specific agent"""
+        colored_print(f"AGENT STATUS: {agent_name}", Colors.BRIGHT_CYAN)
+        
+        # Find agent
+        agents = self.comm.load_agents()
+        target_agent = None
+        
+        for agent in agents:
+            if agent['id'] == agent_name or agent['role'] == agent_name:
+                target_agent = agent
+                break
+        
+        if not target_agent:
+            colored_print(f"ERROR: Agent '{agent_name}' not found", Colors.RED)
+            return
+        
+        # Display status
+        colored_print(f"   ID: {target_agent['id']}", Colors.WHITE)
+        colored_print(f"   Role: {target_agent['role']}", Colors.WHITE)
+        colored_print(f"   Status: {target_agent['status']}", 
+                     Colors.GREEN if target_agent['status'] == 'active' else Colors.RED)
+        colored_print(f"   PID: {target_agent.get('pid', 'unknown')}", Colors.WHITE)
+        colored_print(f"   Last Seen: {target_agent.get('last_seen', 'unknown')}", Colors.WHITE)
+        
+        if target_agent.get('deactivated_at'):
+            colored_print(f"   Deactivated: {target_agent['deactivated_at']}", Colors.YELLOW)
+        
+        # Check if process is actually running
+        pid = target_agent.get('pid')
+        if pid:
+            try:
+                os.kill(pid, 0)  # Signal 0 checks if process exists
+                colored_print(f"   Process: RUNNING ✓", Colors.GREEN)
+            except ProcessLookupError:
+                colored_print(f"   Process: NOT RUNNING ✗", Colors.RED)
+            except PermissionError:
+                colored_print(f"   Process: EXISTS (no permission to check)", Colors.YELLOW)
+        
+        # Show pending tasks
+        if target_agent['status'] == 'active':
+            tasks = self.comm.get_pending_tasks(target_agent['id'])
+            colored_print(f"   Pending Tasks: {len(tasks)}", Colors.CYAN)
+            if tasks:
+                for task in tasks[:3]:  # Show first 3 tasks
+                    print(f"      • {task['id']}: {task['description'][:50]}...")
+    
+    def spawn_new_agent(self, role: str, name: str):
+        """Spawn a new agent with specified role and name"""
+        colored_print(f"AGENT MANAGEMENT: Spawning new agent '{name}' with role '{role}'", Colors.BRIGHT_GREEN)
+        
+        # Validate role
+        valid_roles = ['coordinator', 'file_manager', 'coder', 'code_reviewer', 'code_rewriter', 'git_manager', 'researcher', 'tester']
+        if role not in valid_roles:
+            colored_print(f"ERROR: Invalid role '{role}'. Valid roles: {', '.join(valid_roles)}", Colors.RED)
+            return
+        
+        # Check if agent already exists
+        agents = self.comm.get_active_agents()
+        if any(agent['id'] == name for agent in agents):
+            colored_print(f"ERROR: Agent '{name}' already exists", Colors.RED)
+            return
+        
+        # Spawn the agent
+        success = self.spawn_single_agent(role, name)
+        
+        if success:
+            colored_print(f"SUCCESS: Agent '{name}' ({role}) spawned successfully", Colors.GREEN)
+        else:
+            colored_print(f"ERROR: Failed to spawn agent '{name}'", Colors.RED)
+    
+    def cleanup_inactive_agents(self):
+        """Remove all inactive agents from the registry"""
+        colored_print("AGENT MANAGEMENT: Cleaning up inactive agents", Colors.BRIGHT_YELLOW)
+        
+        agents = self.comm.load_agents()
+        active_count = len([a for a in agents if a['status'] == 'active'])
+        inactive_agents = [a for a in agents if a['status'] != 'active']
+        
+        if not inactive_agents:
+            colored_print("INFO: No inactive agents found", Colors.GREEN)
+            return
+        
+        colored_print(f"FOUND: {len(inactive_agents)} inactive agents to remove", Colors.YELLOW)
+        
+        # Keep only active agents
+        active_agents = [a for a in agents if a['status'] == 'active']
+        self.comm.save_agents(active_agents)
+        
+        colored_print(f"SUCCESS: Removed {len(inactive_agents)} inactive agents", Colors.GREEN)
+        colored_print(f"ACTIVE: {active_count} agents remain active", Colors.CYAN)
+
 def main():
     if len(sys.argv) != 3:
         print("Usage: python multi_agent_terminal.py <agent_id> <role>")
@@ -2135,23 +3419,38 @@ def main():
     # Create agent
     agent = MultiAgentTerminal(agent_id, role)
     
-    colored_print(f"\n=== Multi-Agent Terminal ({agent_id}) ===", Colors.BRIGHT_YELLOW)
-    colored_print(f"Role: {role.value}", Colors.CYAN)
-    colored_print(f"Workspace: {agent.workspace_dir}", Colors.CYAN)
-    colored_print("Commands: 'help', 'agents', 'tasks', 'delegate \"description\" to agent', 'quit'", Colors.WHITE)
-    colored_print("=" * 50, Colors.BRIGHT_YELLOW)
+    # Show guided welcome for coordinator in guided mode
+    if agent.guided_mode and role == AgentRole.COORDINATOR:
+        agent.show_guided_welcome()
+    else:
+        colored_print(f"\n=== Multi-Agent Terminal ({agent_id}) ===", Colors.BRIGHT_YELLOW)
+        colored_print(f"Role: {role.value}", Colors.CYAN)
+        colored_print(f"Workspace: {agent.workspace_dir}", Colors.CYAN)
+        colored_print("Commands: 'help', 'agents', 'tasks', 'delegate \"description\" to agent', 'quit'", Colors.WHITE)
+        colored_print("=" * 50, Colors.BRIGHT_YELLOW)
     
     try:
         while True:
             try:
-                user_input = input(f"\n[{agent_id}]> ").strip()
+                # Use different prompt for guided mode
+                if agent.guided_mode and role == AgentRole.COORDINATOR:
+                    user_input = input(colored_text("\nWhat would you like to do? ", Colors.BRIGHT_CYAN)).strip()
+                else:
+                    user_input = input(f"\n[{agent_id}]> ").strip()
                 
                 if not user_input:
                     continue
                 
                 if user_input.lower() in ['quit', 'exit', 'q']:
                     break
-                elif user_input.lower() == 'help':
+                    
+                # Handle guided commands for coordinator, then fall through to standard commands
+                if agent.guided_mode and role == AgentRole.COORDINATOR:
+                    if agent.handle_guided_command(user_input):
+                        continue  # Command was handled in guided mode
+                    # If not handled in guided mode, fall through to standard commands
+                
+                if user_input.lower() == 'help':
                     print("Available commands:")
                     print("  agents - Show active agents")
                     print("  tasks - Show pending tasks")
@@ -2160,6 +3459,14 @@ def main():
                     print("  project - Show current project process")
                     print("  set_project <name> - Set focus to specific project process")
                     print("  files - Show project files loaded for AI collaboration")
+                    print()
+                    colored_print("Agent Management Commands:", Colors.BRIGHT_YELLOW)
+                    print("  kill <agent_name> - Kill and remove a faulty agent")
+                    print("  restart <agent_name> - Restart a specific agent")
+                    print("  status <agent_name> - Check status of specific agent")
+                    print("  spawn <role> <name> - Create new agent with role and name")
+                    print("  cleanup - Remove all inactive agents")
+                    print()
                     print("  quit - Exit the terminal")
                 elif user_input.lower() == 'agents':
                     agents = agent.comm.get_active_agents()
@@ -2190,6 +3497,26 @@ def main():
                             print(f"  {relative_path} ({size_kb:.1f} KB)")
                     else:
                         colored_print("FOLDER: No active project process", Colors.YELLOW)
+                # Agent Management Commands
+                elif user_input.lower().startswith('kill '):
+                    agent_name = user_input[5:].strip()
+                    agent.kill_agent(agent_name)
+                elif user_input.lower().startswith('restart '):
+                    agent_name = user_input[8:].strip()
+                    agent.restart_agent(agent_name)
+                elif user_input.lower().startswith('status '):
+                    agent_name = user_input[7:].strip()
+                    agent.show_agent_status(agent_name)
+                elif user_input.lower().startswith('spawn '):
+                    parts = user_input[6:].strip().split()
+                    if len(parts) >= 2:
+                        role = parts[0]
+                        name = parts[1]
+                        agent.spawn_new_agent(role, name)
+                    else:
+                        colored_print("Usage: spawn <role> <name>", Colors.RED)
+                elif user_input.lower() == 'cleanup':
+                    agent.cleanup_inactive_agents()
                 elif user_input.lower().startswith('delegate '):
                     # Parse delegation command: delegate "description" to agent_name
                     command_part = user_input[9:].strip()
@@ -2201,15 +3528,21 @@ def main():
                             description = parts[0].strip().strip('"')
                             target_agent = parts[1].strip()
                             
-                            # Map role names to actual role values for assignment
+                            # Map role names and agent names to actual role values for assignment
                             role_mapping = {
                                 'file_manager': 'file_manager',
+                                'files': 'files',  # Agent name -> agent ID
                                 'coder': 'coder',
+                                'dev': 'dev',      # Agent name -> agent ID
                                 'code_reviewer': 'code_reviewer', 
+                                'reviewer': 'reviewer',  # Agent name -> agent ID
                                 'code_rewriter': 'code_rewriter',
+                                'fixer': 'fixer',  # Agent name -> agent ID
                                 'git_manager': 'git_manager',
+                                'git': 'git',      # Agent name -> agent ID
                                 'researcher': 'researcher',
-                                'tester': 'tester'
+                                'tester': 'tester',
+                                'main': 'main'     # Coordinator agent name
                             }
                             
                             assigned_to = role_mapping.get(target_agent, target_agent)

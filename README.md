@@ -19,6 +19,8 @@ A sophisticated multi-agent coordination system where specialized AI agents coll
 - **Standardized AI Interfaces**: Consistent input/output format for all AI operations regardless of framework
 - **Smart Framework Detection**: AI automatically chooses optimal technology stack for requirements
 - **Real-time Communication**: JSON-based inter-agent messaging with cross-technology project awareness
+- **Agent Lifecycle Management**: Kill, restart, monitor, and spawn agents dynamically for fault tolerance
+- **Enhanced Project Intelligence**: Auto-locates existing projects, prevents "UnknownProject" creation
 - **Cross-platform**: Native Linux/macOS support with WSL optimization
 - **Automated Launchers**: Multiple startup methods for different environments and frameworks
 
@@ -87,6 +89,14 @@ delegate 'enhance existing project with real-time WebSocket features' to file_ma
 - `files` - View loaded project files for AI context
 - `delegate "task description" to agent` - Assign framework-agnostic tasks
 
+**Agent Management Commands:**
+- `agents` - List all active agents with process status
+- `status <agent_name>` - Detailed health check of specific agent
+- `kill <agent_name>` - Terminate and remove faulty agent
+- `restart <agent_name>` - Kill and respawn agent with same role
+- `spawn <role> <name>` - Create new specialized agent
+- `cleanup` - Remove inactive agents from registry
+
 ## TIP: Universal Workflow Examples
 
 **React Web App:**
@@ -132,9 +142,80 @@ The system provides universal AI-powered development support for:
 
 **Language Support:** JavaScript/TypeScript, Python, Java, C#, Go, Rust, C++, PHP, Ruby, Kotlin, Swift, and more.
 
+## 🛠️ **Enhanced Agent Management & File Intelligence**
+
+### **Smart File Manager - No More "UnknownProject"**
+
+The enhanced file manager automatically:
+- **Auto-locates existing projects** - Scans workspace for matching projects
+- **Prevents duplicate creation** - Uses existing project structure when possible
+- **Intelligent project matching** - Matches tasks to appropriate existing projects
+- **Component-in-project creation** - Adds components to existing projects instead of creating new ones
+- **Project structure analysis** - Understands React, Vue, Python, Java project layouts
+
+```bash
+# File manager will find existing "TimeDisplayApp" project
+delegate "Create TimeComponent that displays current time" to file_manager
+
+# Instead of creating "UnknownProject", it creates:
+# workspace/TimeDisplayApp/src/TimeComponent.jsx
+```
+
+### **Agent Lifecycle Management - Production Ready**
+
+Complete agent health monitoring and fault recovery:
+
+#### **Monitor Agent Health**
+```bash
+# Check all agents
+agents
+
+# Detailed agent status
+status files
+# Output:
+#   ID: files
+#   Role: file_manager  
+#   Status: active ✓
+#   PID: 12345
+#   Process: RUNNING ✓
+#   Pending Tasks: 2
+```
+
+#### **Handle Faulty Agents**
+```bash
+# Agent stuck or behaving incorrectly?
+restart reviewer
+
+# Agent completely broken?
+kill coder
+spawn coder new_coder
+
+# System maintenance
+cleanup  # Remove inactive agents
+```
+
+#### **Dynamic Scaling**
+```bash
+# Need more specialized agents?
+spawn tester qa_specialist
+spawn researcher tech_researcher
+spawn coder frontend_specialist
+
+# Remove when done
+kill qa_specialist
+```
+
+### **Fault Tolerance Features**
+- **Process ID Tracking**: Each agent's PID monitored for health checks
+- **Graceful Termination**: SIGTERM for clean shutdown
+- **Registry Management**: Automatic cleanup of orphaned processes
+- **Zero Downtime**: Other agents continue working during restarts
+- **Error Recovery**: Restart agents without affecting project state
+
 ## FILES: Documentation
 
 - **General Usage**: `docs/README.md`
+- **Agent Lifecycle Management**: `AGENT_LIFECYCLE_MANAGEMENT_GUIDE.md` ⭐ **NEW**
 - **WSL Setup**: `WSL_USAGE_GUIDE.md`
 - **Automated Launchers**: `AUTOMATED_LAUNCHER_GUIDE.md`
 - **Agent Collaboration**: `CODE_REVIEWER_REWRITER_COLLABORATION.md`
