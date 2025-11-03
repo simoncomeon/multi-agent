@@ -2678,7 +2678,7 @@ console.log('Code generation task: {description}');
  if result.returncode == 0:
  colored_print("Command completed", Colors.GREEN)
  else:
- colored_print(f"⚠Command exited with code {result.returncode}", Colors.YELLOW)
+ colored_print(f"Command exited with code {result.returncode}", Colors.YELLOW)
  except Exception as e:
  colored_print(f"Command failed: {e}", Colors.RED)
 

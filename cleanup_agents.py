@@ -62,11 +62,11 @@ def kill_agent_processes(agent_pids):
  except psutil.TimeoutExpired:
  # Force kill if needed
  process.kill()
- print(f"⚠Agent '{agent_id}' force killed")
+ print(f"Agent '{agent_id}' force killed")
  
  killed_count += 1
  else:
- print(f"⚠PID {pid} is not a Python process, skipping")
+ print(f"PID {pid} is not a Python process, skipping")
  else:
  print(f"ℹAgent '{agent_id}' (PID: {pid}) already terminated")
  
@@ -130,7 +130,7 @@ def kill_orphaned_processes():
  print(f"Orphaned process {proc.info['pid']} terminated")
  except psutil.TimeoutExpired:
  process.kill()
- print(f"⚠Orphaned process {proc.info['pid']} force killed")
+ print(f"Orphaned process {proc.info['pid']} force killed")
  
  killed_count += 1
  

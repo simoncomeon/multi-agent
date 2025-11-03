@@ -143,9 +143,9 @@ def demo_multi_agent_coordination():
  "Automatic retry mechanisms for failed tasks",
  "Comprehensive logging and audit trails",
  "Extensible communication protocols",
- "🧠 AI-powered task decomposition",
+ " AI-powered task decomposition",
  "Parallel task execution",
- "🎮 Interactive coordination interface"
+ " Interactive coordination interface"
  ]
  
  for feature in advanced:
@@ -153,7 +153,7 @@ def demo_multi_agent_coordination():
 
 def show_communication_structure():
  """Show how agents communicate"""
- print("\n🔗 Agent Communication Structure:")
+ print("\nLINK: Agent Communication Structure:")
  print("=" * 35)
  
  comm_structure = """

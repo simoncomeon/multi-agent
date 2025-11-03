@@ -54,7 +54,7 @@ except:
         python3 "$AGENT_SCRIPT" coordinator main
         
     else
-        echo -e "${YELLOW}⚠No active agents found${NC}"
+        echo -e "${YELLOW}No active agents found${NC}"
         echo ""
         echo "Start agents first:"
         echo "  python3 wsl_launcher.py react-dev"
@@ -62,7 +62,7 @@ except:
         exit 1
     fi
 else
-    echo -e "${YELLOW}⚠No agent communication found${NC}"
+    echo -e "${YELLOW}No agent communication found${NC}"
     echo ""
     echo "Start agents first:"
     echo "  python3 wsl_launcher.py react-dev"

@@ -17,7 +17,7 @@ NC='\033[0m'
 
 # Check if tmux is available
 if ! command -v tmux >/dev/null 2>&1; then
-    echo -e "${RED}❌ tmux is not installed. Please install tmux or use launch_agents.sh instead.${NC}"
+    echo -e "${RED}ERROR: tmux is not installed. Please install tmux or use launch_agents.sh instead.${NC}"
     exit 1
 fi
 

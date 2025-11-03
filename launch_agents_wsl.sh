@@ -37,7 +37,7 @@ launch_agent_wt() {
         echo -e "${GREEN}Successfully launched ${role} agent '${name}'${NC}"
         return 0
     else
-        echo -e "${RED}❌ Failed to launch with Windows Terminal${NC}"
+        echo -e "${RED}ERROR: Failed to launch with Windows Terminal${NC}"
         return 1
     fi
 }
@@ -47,7 +47,7 @@ launch_agent_powershell() {
     local role="$1"
     local name="$2"
     
-    echo -e "${YELLOW}⚠Falling back to PowerShell for ${role} agent '${name}'${NC}"
+    echo -e "${YELLOW}Falling back to PowerShell for ${role} agent '${name}'${NC}"
     
     # Get WSL distribution name
     local wsl_distro=$(wsl.exe -l -v | grep -E "\*|Running" | awk '{print $1}' | tr -d '\r' | head -1)
@@ -59,7 +59,7 @@ launch_agent_powershell() {
         echo -e "${GREEN}Successfully launched ${role} agent '${name}' via PowerShell${NC}"
         return 0
     else
-        echo -e "${RED}❌ Failed to launch with PowerShell${NC}"
+        echo -e "${RED}ERROR: Failed to launch with PowerShell${NC}"
         return 1
     fi
 }
@@ -69,7 +69,7 @@ launch_agent_background() {
     local role="$1"
     local name="$2"
     
-    echo -e "${YELLOW}⚠Launching ${role} agent '${name}' in background${NC}"
+    echo -e "${YELLOW}Launching ${role} agent '${name}' in background${NC}"
     
     cd "$SCRIPT_DIR"
     python3 "$MULTI_AGENT_SCRIPT" "$role" "$name" &
@@ -88,13 +88,13 @@ launch_agent() {
         coordinator|coder|code_reviewer|code_rewriter|file_manager|git_manager|researcher)
             ;;
         *)
-            echo -e "${RED}❌ Invalid role: $role${NC}"
+            echo -e "${RED}ERROR: Invalid role: $role${NC}"
             return 1
             ;;
     esac
     
     if check_wsl; then
-        echo -e "${BLUE}🐧 WSL environment detected${NC}"
+        echo -e "${BLUE}WSL: WSL environment detected${NC}"
         
         # Try Windows Terminal first
         if command -v wt.exe >/dev/null 2>&1; then
@@ -104,11 +104,11 @@ launch_agent() {
             launch_agent_powershell "$role" "$name"
         # Background as last resort
         else
-            echo -e "${YELLOW}⚠No Windows terminal access found${NC}"
+            echo -e "${YELLOW}No Windows terminal access found${NC}"
             launch_agent_background "$role" "$name"
         fi
     else
-        echo -e "${YELLOW}⚠Not in WSL environment, launching in background${NC}"
+        echo -e "${YELLOW}Not in WSL environment, launching in background${NC}"
         launch_agent_background "$role" "$name"
     fi
     
@@ -152,7 +152,7 @@ launch_code_review_wsl() {
 
 # Show usage
 show_usage() {
-    echo -e "${WHITE}🐧 WSL Multi-Agent Launcher${NC}"
+    echo -e "${WHITE}WSL: WSL Multi-Agent Launcher${NC}"
     echo "================================"
     echo ""
     echo -e "${CYAN}WSL-Optimized Commands:${NC}"
@@ -186,7 +186,7 @@ show_usage() {
 main() {
     # Check if we have the agent script
     if [[ ! -f "$MULTI_AGENT_SCRIPT" ]]; then
-        echo -e "${RED}❌ multi_agent_terminal.py not found${NC}"
+        echo -e "${RED}ERROR: multi_agent_terminal.py not found${NC}"
         echo "Please run from the multi-agent directory"
         exit 1
     fi
@@ -227,7 +227,7 @@ main() {
                     name="${agent_spec##*:}"
                     launch_agent "$role" "$name"
                 else
-                    echo -e "${RED}❌ Invalid format: $agent_spec (use role:name)${NC}"
+                    echo -e "${RED}ERROR: Invalid format: $agent_spec (use role:name)${NC}"
                 fi
             done
             ;;

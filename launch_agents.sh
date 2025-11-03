@@ -94,7 +94,7 @@ launch_agent_terminal() {
                            read -p 'Press Enter to close...'" &
             ;;
         *)
-            echo -e "${RED}❌ Unknown terminal emulator. Starting in background...${NC}"
+            echo -e "${RED}ERROR: Unknown terminal emulator. Starting in background...${NC}"
             cd "$MULTI_AGENT_DIR"
             python3 "$MULTI_AGENT_SCRIPT" "$role" "$name" &
             ;;
@@ -168,13 +168,13 @@ launch_agents() {
                     ((agent_count++))
                     ;;
                 *)
-                    echo -e "${RED}❌ Invalid role: $role${NC}"
+                    echo -e "${RED}ERROR: Invalid role: $role${NC}"
                     echo -e "${YELLOW}Valid roles: coordinator, coder, code_reviewer, code_rewriter, file_manager, git_manager, researcher${NC}"
                     return 1
                     ;;
             esac
         else
-            echo -e "${RED}❌ Invalid format: $agent_spec${NC}"
+            echo -e "${RED}ERROR: Invalid format: $agent_spec${NC}"
             echo -e "${YELLOW}Use format: role:name${NC}"
             return 1
         fi
@@ -198,7 +198,7 @@ launch_agents() {
 main() {
     # Check if we're in the right directory
     if [[ ! -f "$MULTI_AGENT_SCRIPT" ]]; then
-        echo -e "${RED}❌ multi_agent_terminal.py not found in bin/. Please run from multi-agent directory.${NC}"
+        echo -e "${RED}ERROR: multi_agent_terminal.py not found in bin/. Please run from multi-agent directory.${NC}"
         exit 1
     fi
     

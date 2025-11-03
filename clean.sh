@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Quick cleanup script for multi-agent system
-echo "🧹 Quick Agent Cleanup"
+echo " Quick Agent Cleanup"
 
 # Kill any running multi_agent_terminal processes
 pkill -f "multi_agent_terminal.py" 2>/dev/null

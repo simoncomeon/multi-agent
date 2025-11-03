@@ -67,7 +67,7 @@ def kill_agent_processes(agent_pids):
  
  if check_result.returncode == 0:
  # Still running, force kill
- print(f"⚠Force killing agent '{agent_id}' (PID: {pid})")
+ print(f"Force killing agent '{agent_id}' (PID: {pid})")
  subprocess.run(['kill', '-KILL', str(pid)], 
  capture_output=True, text=True)
  else:
@@ -110,7 +110,7 @@ def kill_orphaned_processes():
  if check_result.returncode == 0:
  subprocess.run(['kill', '-KILL', pid], 
  capture_output=True, text=True)
- print(f"⚠Force killed orphaned process {pid}")
+ print(f"Force killed orphaned process {pid}")
  else:
  print(f"Orphaned process {pid} terminated")
  

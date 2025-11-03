@@ -4,7 +4,7 @@
 
 The **Code Reviewer** and **Code Rewriter** agents work together in a sophisticated collaboration workflow where the reviewer creates structured task lists for the rewriter to fix systematically.
 
-## 🔄 Collaboration Process
+## PROCESS: Collaboration Process
 
 ### Step 1: Code Review Analysis
 
@@ -130,7 +130,7 @@ def request_review_follow_up(self, failed_fixes):
     # Enables iterative improvement cycles
 ```
 
-## 🎯 Key Features
+## TARGET: Key Features
 
 ### 1. **Structured Issue Lists**
 - Each issue has specific file location and line number
@@ -193,7 +193,7 @@ standardized_input = self.create_standardized_ai_input(
 - Metadata tracking for audit and follow-up
 - Automatic escalation for failed fixes
 
-## 📋 Example Workflow
+## INFO: Example Workflow
 
 ### User Command:
 ```bash
@@ -204,34 +204,34 @@ delegate "review TimeDisplayApp for code quality and fix all issues" to code_rev
 
 1. **Code Reviewer** conducts analysis:
    ```
-   🔍 CODE REVIEWER: Conducting comprehensive code review
-   📋 Found 3 issues requiring attention:
-      🚨 CRITICAL: Security vulnerability in auth.js:15
-      ⚠️ MAJOR: Memory leak in Timer.js:42
+   INFO: CODE REVIEWER: Conducting comprehensive code review
+   INFO: Found 3 issues requiring attention:
+       CRITICAL: Security vulnerability in auth.js:15
+      WARNING: MAJOR: Memory leak in Timer.js:42
       ℹ️ MINOR: TODO item in utils.js:7
-   🔄 Delegating 3 issues to code rewriter
+   PROCESS: Delegating 3 issues to code rewriter
    ```
 
 2. **Code Rewriter** processes fixes:
    ```
-   🔧 CODE REWRITER: Processing code fixes
-   🔨 Fixing issue 1/3: CRITICAL - Security vulnerability
-      ✅ Fixed: auth.js (backup: auth.js.backup)
-   🔨 Fixing issue 2/3: MAJOR - Memory leak
-      ✅ Fixed: Timer.js (backup: Timer.js.backup)  
-   🔨 Fixing issue 3/3: MINOR - TODO completion
-      ✅ Fixed: utils.js (backup: utils.js.backup)
-   📊 REWRITE SUMMARY: 3/3 issues fixed
+   CONFIG: CODE REWRITER: Processing code fixes
+    Fixing issue 1/3: CRITICAL - Security vulnerability
+      SUCCESS: Fixed: auth.js (backup: auth.js.backup)
+    Fixing issue 2/3: MAJOR - Memory leak
+      SUCCESS: Fixed: Timer.js (backup: Timer.js.backup)  
+    Fixing issue 3/3: MINOR - TODO completion
+      SUCCESS: Fixed: utils.js (backup: utils.js.backup)
+   STATUS: REWRITE SUMMARY: 3/3 issues fixed
    ```
 
 3. **Final Result**:
    ```
-   ✅ All critical and major issues resolved
-   💾 Original files backed up safely
-   📊 Project quality significantly improved
+   SUCCESS: All critical and major issues resolved
+    Original files backed up safely
+   STATUS: Project quality significantly improved
    ```
 
-## 🔧 Integration Benefits
+## CONFIG: Integration Benefits
 
 ### 1. **Automated Quality Assurance**
 - No manual issue tracking needed
@@ -253,7 +253,7 @@ delegate "review TimeDisplayApp for code quality and fix all issues" to code_rev
 - Backup files for rollback capability
 - Detailed reporting for project management
 
-## 🚀 Usage Examples
+## LAUNCH: Usage Examples
 
 ### React Project Code Review:
 ```bash

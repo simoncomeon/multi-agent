@@ -61,7 +61,7 @@ def launch_wsl_workflow(workflow_name):
  print(f" Unknown workflow: {workflow_name}")
  return False
  
- print(f"🐧 WSL: Starting {workflow_name} workflow in background mode")
+ print(f"WSL: WSL: Starting {workflow_name} workflow in background mode")
  print("=" * 50)
  
  agents = workflows[workflow_name]
@@ -109,7 +109,7 @@ def show_agent_status():
 def main():
  """Main entry point"""
  if len(sys.argv) < 2:
- print("🐧 WSL Multi-Agent Launcher")
+ print("WSL: WSL Multi-Agent Launcher")
  print("=" * 30)
  print()
  print("Usage:")
@@ -123,9 +123,9 @@ def main():
  print(" clean - Clean up all agents")
  print()
  if is_wsl():
- print("🐧 WSL detected - agents will run in background mode")
+ print("WSL: WSL detected - agents will run in background mode")
  else:
- print("⚠Not in WSL environment")
+ print("Not in WSL environment")
  return
  
  command = sys.argv[1]

@@ -280,10 +280,10 @@ class MultiAgentTerminal:
                 # Single project - set as current
                 self.set_project_process(project_dirs[0])
             elif len(project_dirs) > 1:
-                colored_print(f"⚠️ Multiple projects detected: {', '.join(project_dirs)}", Colors.YELLOW)
-                colored_print(f"💡 Use 'set_project <name>' to focus on one project process", Colors.CYAN)
+                colored_print(f"WARNING: Multiple projects detected: {', '.join(project_dirs)}", Colors.YELLOW)
+                colored_print(f"TIP: Use 'set_project <name>' to focus on one project process", Colors.CYAN)
             else:
-                colored_print(f"📁 No active project process detected", Colors.BLUE)
+                colored_print(f"FOLDER: No active project process detected", Colors.BLUE)
         except Exception as e:
             colored_print(f"Error detecting project process: {e}", Colors.RED)
     
@@ -298,10 +298,10 @@ class MultiAgentTerminal:
             # Load project files for AI input
             self.load_project_files()
             
-            colored_print(f"🎯 Project Process Focus: {project_name}", Colors.BRIGHT_GREEN)
-            colored_print(f"📂 Workspace: {project_path}", Colors.GREEN)
+            colored_print(f"TARGET: Project Process Focus: {project_name}", Colors.BRIGHT_GREEN)
+            colored_print(f"FOLDER: Workspace: {project_path}", Colors.GREEN)
         else:
-            colored_print(f"❌ Project process '{project_name}' not found", Colors.RED)
+            colored_print(f"ERROR: Project process '{project_name}' not found", Colors.RED)
     
     def load_project_files(self):
         """Load all project files content for AI model input"""
@@ -329,10 +329,10 @@ class MultiAgentTerminal:
                                     'size': len(content)
                                 }
                         except Exception as e:
-                            colored_print(f"⚠️ Could not read {relative_path}: {e}", Colors.YELLOW)
+                            colored_print(f"WARNING: Could not read {relative_path}: {e}", Colors.YELLOW)
             
             file_count = len(self.project_process_files)
-            colored_print(f"📚 Loaded {file_count} project files for AI collaboration", Colors.CYAN)
+            colored_print(f"FILES: Loaded {file_count} project files for AI collaboration", Colors.CYAN)
             
         except Exception as e:
             colored_print(f"Error loading project files: {e}", Colors.RED)
@@ -561,7 +561,7 @@ This task requires AI model collaboration for detailed implementation guidance."
             context_type="PROJECT_ANALYSIS"
         )
         
-        colored_print(f"   🤖 Universal AI task analysis with standardized input", Colors.BRIGHT_CYAN)
+        colored_print(f"   AGENT: Universal AI task analysis with standardized input", Colors.BRIGHT_CYAN)
         
         # Try AI analysis with standardized input
         ai_result = self.execute_standardized_ai_operation(standardized_input)
@@ -761,7 +761,7 @@ Implementation:"""
         """Handle code review tasks and create structured review reports for code rewriter"""
         
         description = task["description"]
-        colored_print(f"🔍 CODE REVIEWER: Conducting comprehensive code review", Colors.BRIGHT_CYAN)
+        colored_print(f"INFO: CODE REVIEWER: Conducting comprehensive code review", Colors.BRIGHT_CYAN)
         colored_print(f"   Task: {description}", Colors.CYAN)
         
         # Use universal AI collaboration for code review
@@ -862,7 +862,7 @@ Implementation:"""
     def conduct_basic_code_review(self, description: str) -> Dict:
         """Fallback basic code review when AI unavailable"""
         
-        colored_print(f"   📋 Conducting basic code review analysis", Colors.YELLOW)
+        colored_print(f"   INFO: Conducting basic code review analysis", Colors.YELLOW)
         
         # Basic file analysis
         issues = []
@@ -893,7 +893,7 @@ Implementation:"""
         if not issues:
             return
         
-        colored_print(f"   🔄 Delegating {len(issues)} issues to code rewriter", Colors.BRIGHT_YELLOW)
+        colored_print(f"   PROCESS: Delegating {len(issues)} issues to code rewriter", Colors.BRIGHT_YELLOW)
         
         # Create structured task for code rewriter
         rewriter_task_description = f"Fix {len(issues)} code issues from review report"
@@ -914,13 +914,13 @@ Implementation:"""
             }
         )
         
-        colored_print(f"   ✅ Created rewriter task {task_id} with {len(issues)} structured fixes", Colors.GREEN)
+        colored_print(f"   SUCCESS: Created rewriter task {task_id} with {len(issues)} structured fixes", Colors.GREEN)
     
     def handle_file_management_task(self, task: Dict) -> Dict:
         """Handle file management tasks - create directories, organize project structure, edit files"""
         description = task["description"]
         
-        colored_print(f"📁 FILE MANAGER: Processing file management task", Colors.BRIGHT_CYAN)
+        colored_print(f"FOLDER: FILE MANAGER: Processing file management task", Colors.BRIGHT_CYAN)
         colored_print(f"   Task: {description}", Colors.CYAN)
         
         # Check if this is an edit task or create task
@@ -953,7 +953,7 @@ Implementation:"""
     
     def handle_file_edit_task(self, description: str) -> Dict:
         """Handle file editing tasks"""
-        colored_print(f"✏️ FILE EDITOR: Processing file edit request", Colors.BRIGHT_YELLOW)
+        colored_print(f"️ FILE EDITOR: Processing file edit request", Colors.BRIGHT_YELLOW)
         
         # Find the project to edit
         project_path = self.find_project_to_edit(description)
@@ -965,7 +965,7 @@ Implementation:"""
                 "message": "Please specify the project name or ensure the project exists"
             }
         
-        colored_print(f"   📂 Found project: {project_path}", Colors.YELLOW)
+        colored_print(f"   FOLDER: Found project: {project_path}", Colors.YELLOW)
         
         # Analyze what needs to be edited
         edit_info = self.analyze_edit_requirements(description)
@@ -996,7 +996,7 @@ Implementation:"""
                 if os.path.isdir(item_path) and not item.startswith('.'):
                     workspace_projects.append(item)
         
-        colored_print(f"   🔍 Available projects: {', '.join(workspace_projects)}", Colors.CYAN)
+        colored_print(f"   INFO: Available projects: {', '.join(workspace_projects)}", Colors.CYAN)
         
         # Try to match project name from description
         for project in workspace_projects:
@@ -1005,7 +1005,7 @@ Implementation:"""
         
         # If only one project exists, use it
         if len(workspace_projects) == 1:
-            colored_print(f"   🎯 Using only available project: {workspace_projects[0]}", Colors.CYAN)
+            colored_print(f"   TARGET: Using only available project: {workspace_projects[0]}", Colors.CYAN)
             return os.path.join(self.workspace_dir, workspace_projects[0])
         
         # Check for common project names
@@ -1040,7 +1040,7 @@ Implementation:"""
         if "week display" in desc_lower:
             edit_info["new_features"].append("week_display")
         
-        colored_print(f"   📋 Edit Analysis:", Colors.BRIGHT_YELLOW)
+        colored_print(f"   INFO: Edit Analysis:", Colors.BRIGHT_YELLOW)
         colored_print(f"      Target: {edit_info['target_component']}", Colors.YELLOW)
         colored_print(f"      Features: {', '.join(edit_info['new_features'])}", Colors.YELLOW)
         colored_print(f"      Files: {', '.join(edit_info['files_to_edit'])}", Colors.YELLOW)
@@ -1057,18 +1057,18 @@ Implementation:"""
             full_file_path = os.path.join(project_path, file_path)
             
             if os.path.exists(full_file_path):
-                colored_print(f"   ✏️ Editing: {file_path}", Colors.BRIGHT_GREEN)
+                colored_print(f"   ️ Editing: {file_path}", Colors.BRIGHT_GREEN)
                 
                 # Use AI collaboration for any file type
                 success = self.edit_file_with_ai_collaboration(full_file_path, edit_info)
                 
                 if success:
                     edited_files.append(file_path)
-                    colored_print(f"   ✅ Completed: {file_path}", Colors.GREEN)
+                    colored_print(f"   SUCCESS: Completed: {file_path}", Colors.GREEN)
                 else:
-                    colored_print(f"   ⚠️ Edit guidance provided for: {file_path}", Colors.YELLOW)
+                    colored_print(f"   WARNING: Edit guidance provided for: {file_path}", Colors.YELLOW)
             else:
-                colored_print(f"   ❌ File not found: {file_path}", Colors.RED)
+                colored_print(f"   ERROR: File not found: {file_path}", Colors.RED)
         
         return edited_files
     
@@ -1079,7 +1079,7 @@ Implementation:"""
         with open(file_path, 'r') as f:
             current_content = f.read()
         
-        colored_print(f"      📄 Current file content loaded ({len(current_content)} chars)", Colors.CYAN)
+        colored_print(f"       Current file content loaded ({len(current_content)} chars)", Colors.CYAN)
         
         # Use AI model to generate the enhanced version
         enhanced_content = self.collaborate_with_ai_for_file_edit(
@@ -1093,10 +1093,10 @@ Implementation:"""
             with open(file_path, 'w') as f:
                 f.write(enhanced_content)
             
-            colored_print(f"      🤖 AI-generated enhancement applied", Colors.BRIGHT_GREEN)
+            colored_print(f"      AGENT: AI-generated enhancement applied", Colors.BRIGHT_GREEN)
             return True
         else:
-            colored_print(f"      💡 Collaborative guidance provided (AI model unavailable)", Colors.CYAN)
+            colored_print(f"      TIP: Collaborative guidance provided (AI model unavailable)", Colors.CYAN)
             return False
     
     def edit_time_display_component(self, file_path: str, edit_info: Dict):
@@ -1106,7 +1106,7 @@ Implementation:"""
         with open(file_path, 'r') as f:
             current_content = f.read()
         
-        colored_print(f"      📄 Current file content loaded ({len(current_content)} chars)", Colors.CYAN)
+        colored_print(f"       Current file content loaded ({len(current_content)} chars)", Colors.CYAN)
         
         # Use AI model to generate the enhanced version
         enhanced_content = self.collaborate_with_ai_for_file_edit(
@@ -1120,14 +1120,14 @@ Implementation:"""
             with open(file_path, 'w') as f:
                 f.write(enhanced_content)
             
-            colored_print(f"      🤖 AI-generated enhancement applied", Colors.BRIGHT_GREEN)
+            colored_print(f"      AGENT: AI-generated enhancement applied", Colors.BRIGHT_GREEN)
         else:
-            colored_print(f"      ⚠️ No changes generated by AI model", Colors.YELLOW)
+            colored_print(f"      WARNING: No changes generated by AI model", Colors.YELLOW)
     
     def collaborate_with_ai_for_file_edit(self, file_path: str, current_content: str, edit_requirements: Dict) -> str:
         """Universal file editing using standardized AI collaboration"""
         
-        colored_print(f"      🤖 Universal AI collaboration for file editing", Colors.BRIGHT_CYAN)
+        colored_print(f"      AGENT: Universal AI collaboration for file editing", Colors.BRIGHT_CYAN)
         
         # Prepare standardized AI input for file editing
         file_name = file_path.split('/')[-1]
@@ -1164,15 +1164,15 @@ Implementation:"""
             
             # Universal validation - check if content is meaningful
             if enhanced_content and len(enhanced_content) > len(current_content) * 0.5:
-                colored_print(f"      ✅ AI model provided enhanced file content", Colors.GREEN)
+                colored_print(f"      SUCCESS: AI model provided enhanced file content", Colors.GREEN)
                 return enhanced_content
             else:
-                colored_print(f"      ⚠️ AI model output appears incomplete", Colors.YELLOW)
+                colored_print(f"      WARNING: AI model output appears incomplete", Colors.YELLOW)
         else:
-            colored_print(f"      ⚠️ AI model unavailable for enhancement", Colors.YELLOW)
+            colored_print(f"      WARNING: AI model unavailable for enhancement", Colors.YELLOW)
         
         # Fallback: provide guidance and return original
-        colored_print(f"      💡 Providing collaborative guidance instead", Colors.CYAN)
+        colored_print(f"      TIP: Providing collaborative guidance instead", Colors.CYAN)
         self.provide_universal_edit_guidance(file_path, edit_requirements)
         
         return current_content  # Return original if AI can't help
@@ -1184,15 +1184,15 @@ Implementation:"""
         file_ext = file_name.split('.')[-1] if '.' in file_name else 'unknown'
         features = ", ".join(edit_requirements.get("new_features", []))
         
-        colored_print(f"      📋 UNIVERSAL EDIT GUIDANCE:", Colors.BRIGHT_CYAN)
+        colored_print(f"      INFO: UNIVERSAL EDIT GUIDANCE:", Colors.BRIGHT_CYAN)
         colored_print(f"         File: {file_name} (type: {file_ext})", Colors.CYAN)
         colored_print(f"         Requested: {features}", Colors.CYAN)
-        colored_print(f"      💡 SUGGESTED APPROACH:", Colors.CYAN)
+        colored_print(f"      TIP: SUGGESTED APPROACH:", Colors.CYAN)
         colored_print(f"         1. Analyze current file structure and patterns", Colors.CYAN)
         colored_print(f"         2. Identify integration points for new features", Colors.CYAN)
         colored_print(f"         3. Implement using project's established conventions", Colors.CYAN)
         colored_print(f"         4. Test changes for compatibility and functionality", Colors.CYAN)
-        colored_print(f"      🤝 This requires AI model collaboration for implementation.", Colors.MAGENTA)
+        colored_print(f"       This requires AI model collaboration for implementation.", Colors.MAGENTA)
     
     def try_ai_implementation_for_edit(self, prompt: str) -> Dict:
         """Try to get AI implementation for file editing"""
@@ -1225,18 +1225,18 @@ Implementation:"""
     def provide_edit_guidance(self, file_path: str, edit_requirements: Dict):
         """Provide collaborative guidance when AI model is unavailable"""
         
-        colored_print(f"      📋 COLLABORATIVE EDIT GUIDANCE:", Colors.BRIGHT_YELLOW)
+        colored_print(f"      INFO: COLLABORATIVE EDIT GUIDANCE:", Colors.BRIGHT_YELLOW)
         colored_print(f"         File: {file_path.split('/')[-1]}", Colors.YELLOW)
         colored_print(f"         Target: {edit_requirements.get('target_component', 'Component')}", Colors.YELLOW)
         colored_print(f"         Features needed: {', '.join(edit_requirements.get('new_features', []))}", Colors.YELLOW)
         colored_print(f"", Colors.YELLOW)
-        colored_print(f"      💡 SUGGESTED APPROACH:", Colors.BRIGHT_CYAN)
+        colored_print(f"      TIP: SUGGESTED APPROACH:", Colors.BRIGHT_CYAN)
         colored_print(f"         1. Read the current file content", Colors.CYAN)
         colored_print(f"         2. Identify where to add new functionality", Colors.CYAN)
         colored_print(f"         3. Implement the requested features", Colors.CYAN)
         colored_print(f"         4. Test the changes work correctly", Colors.CYAN)
         colored_print(f"", Colors.CYAN)
-        colored_print(f"      🤝 This task requires AI model collaboration for actual implementation.", Colors.MAGENTA)
+        colored_print(f"       This task requires AI model collaboration for actual implementation.", Colors.MAGENTA)
     
     def analyze_project_requirements(self, description: str) -> Dict:
         """Analyze project requirements from description"""
@@ -1284,7 +1284,7 @@ Implementation:"""
         if "week" in desc_lower:
             project_info["components"].append("WeekDisplay")
         
-        colored_print(f"📊 PROJECT ANALYSIS:", Colors.BRIGHT_YELLOW)
+        colored_print(f"STATUS: PROJECT ANALYSIS:", Colors.BRIGHT_YELLOW)
         colored_print(f"   Name: {project_info['name']}", Colors.YELLOW)
         colored_print(f"   Framework: {project_info['framework']}", Colors.YELLOW)
         colored_print(f"   Components: {', '.join(project_info['components'])}", Colors.YELLOW)
@@ -1300,7 +1300,7 @@ Implementation:"""
         # Create project in workspace
         project_path = os.path.join(self.workspace_dir, project_name)
         
-        colored_print(f"🔧 CREATING UNIVERSAL PROJECT STRUCTURE:", Colors.BRIGHT_GREEN)
+        colored_print(f"CONFIG: CREATING UNIVERSAL PROJECT STRUCTURE:", Colors.BRIGHT_GREEN)
         colored_print(f"   Path: {project_path}", Colors.GREEN)
         
         # Create main project directory
@@ -1334,13 +1334,13 @@ Implementation:"""
         else:
             self.create_universal_fallback_structure(project_path, project_info)
         
-        colored_print(f"✅ UNIVERSAL PROJECT CREATED: {project_path}", Colors.BRIGHT_GREEN)
+        colored_print(f"SUCCESS: UNIVERSAL PROJECT CREATED: {project_path}", Colors.BRIGHT_GREEN)
         return project_path
     
     def execute_ai_project_creation(self, project_path: str, project_info: Dict, ai_result: Dict):
         """Execute project creation based on AI analysis"""
         
-        colored_print(f"   🤖 Executing AI-generated project structure", Colors.BRIGHT_CYAN)
+        colored_print(f"   AGENT: Executing AI-generated project structure", Colors.BRIGHT_CYAN)
         
         # Create files based on AI recommendations
         files_to_create = self.parse_ai_project_output(ai_result.get('implementation', ''))
@@ -1358,12 +1358,12 @@ Implementation:"""
             with open(full_path, 'w') as f:
                 f.write(file_content)
                 
-            colored_print(f"   ✅ Created: {file_path}", Colors.GREEN)
+            colored_print(f"   SUCCESS: Created: {file_path}", Colors.GREEN)
     
     def create_universal_fallback_structure(self, project_path: str, project_info: Dict):
         """Create basic universal project structure when AI unavailable"""
         
-        colored_print(f"   📋 Creating universal fallback structure", Colors.YELLOW)
+        colored_print(f"   INFO: Creating universal fallback structure", Colors.YELLOW)
         
         # Basic universal files
         basic_files = {
@@ -1380,7 +1380,7 @@ Implementation:"""
             with open(full_path, 'w') as f:
                 f.write(content)
             
-            colored_print(f"   ✅ Created: {file_path}", Colors.GREEN)
+            colored_print(f"   SUCCESS: Created: {file_path}", Colors.GREEN)
     
     def parse_ai_project_output(self, ai_output: str) -> Dict[str, str]:
         """Parse AI output to extract file structure"""
@@ -1463,7 +1463,7 @@ Implementation:"""
         for dir_path in directories:
             full_path = os.path.join(project_path, dir_path)
             os.makedirs(full_path, exist_ok=True)
-            colored_print(f"   📁 Created: {dir_path}", Colors.GREEN)
+            colored_print(f"   FOLDER: Created: {dir_path}", Colors.GREEN)
         
         # Create basic files
         files_to_create = {
@@ -1487,7 +1487,7 @@ Implementation:"""
             full_file_path = os.path.join(project_path, file_path)
             with open(full_file_path, 'w') as f:
                 f.write(content)
-            colored_print(f"   📄 Created: {file_path}", Colors.GREEN)
+            colored_print(f"    Created: {file_path}", Colors.GREEN)
     
     def create_generic_structure(self, project_path: str, project_info: Dict):
         """Create generic project structure"""
@@ -1497,13 +1497,13 @@ Implementation:"""
         for dir_path in directories:
             full_path = os.path.join(project_path, dir_path)
             os.makedirs(full_path, exist_ok=True)
-            colored_print(f"   📁 Created: {dir_path}", Colors.GREEN)
+            colored_print(f"   FOLDER: Created: {dir_path}", Colors.GREEN)
         
         # Create README
         readme_path = os.path.join(project_path, "README.md")
         with open(readme_path, 'w') as f:
             f.write(self.generate_readme(project_info))
-        colored_print(f"   📄 Created: README.md", Colors.GREEN)
+        colored_print(f"    Created: README.md", Colors.GREEN)
     
     def list_created_files(self, project_path: str) -> List[str]:
         """List all files created in the project"""
@@ -1903,7 +1903,7 @@ export default {component_name};'''
         """Handle code rewriting tasks from code reviewer reports"""
         
         description = task["description"]
-        colored_print(f"🔧 CODE REWRITER: Processing code fixes", Colors.BRIGHT_CYAN)
+        colored_print(f"CONFIG: CODE REWRITER: Processing code fixes", Colors.BRIGHT_CYAN)
         colored_print(f"   Task: {description}", Colors.CYAN)
         
         # Check if this is from a code review report
@@ -1919,27 +1919,27 @@ export default {component_name};'''
         review_report = metadata.get("review_report", {})
         issues = review_report.get("issues", [])
         
-        colored_print(f"   📋 Processing {len(issues)} issues from code review", Colors.CYAN)
+        colored_print(f"   INFO: Processing {len(issues)} issues from code review", Colors.CYAN)
         
         fixed_issues = []
         failed_fixes = []
         
         # Process each issue systematically
         for i, issue in enumerate(issues, 1):
-            colored_print(f"   🔨 Fixing issue {i}/{len(issues)}: {issue.get('severity', 'UNKNOWN')} - {issue.get('description', 'No description')}", Colors.YELLOW)
+            colored_print(f"    Fixing issue {i}/{len(issues)}: {issue.get('severity', 'UNKNOWN')} - {issue.get('description', 'No description')}", Colors.YELLOW)
             
             fix_result = self.apply_single_issue_fix(issue, review_report)
             
             if fix_result.get("success"):
                 fixed_issues.append(issue)
-                colored_print(f"      ✅ Fixed: {issue.get('file', 'unknown file')}", Colors.GREEN)
+                colored_print(f"      SUCCESS: Fixed: {issue.get('file', 'unknown file')}", Colors.GREEN)
             else:
                 failed_fixes.append(issue)
-                colored_print(f"      ❌ Failed: {fix_result.get('error', 'Unknown error')}", Colors.RED)
+                colored_print(f"      ERROR: Failed: {fix_result.get('error', 'Unknown error')}", Colors.RED)
         
         # Summary
         total_fixes = len(fixed_issues)
-        colored_print(f"   📊 REWRITE SUMMARY: {total_fixes}/{len(issues)} issues fixed", Colors.BRIGHT_GREEN)
+        colored_print(f"   STATUS: REWRITE SUMMARY: {total_fixes}/{len(issues)} issues fixed", Colors.BRIGHT_GREEN)
         
         # Auto-delegate back to reviewer if critical issues remain
         if failed_fixes:
@@ -2046,17 +2046,17 @@ export default {component_name};'''
             # Update cached content
             self.project_process_files[file_path]["content"] = fixed_content
             
-            colored_print(f"      📝 Applied fix to {file_path} (backup: {backup_path})", Colors.GREEN)
+            colored_print(f"       Applied fix to {file_path} (backup: {backup_path})", Colors.GREEN)
             return True
             
         except Exception as e:
-            colored_print(f"      ❌ Error applying fix to {file_path}: {e}", Colors.RED)
+            colored_print(f"      ERROR: Error applying fix to {file_path}: {e}", Colors.RED)
             return False
     
     def request_review_follow_up(self, failed_fixes: list, original_task: Dict):
         """Request follow-up review for failed fixes"""
         
-        colored_print(f"   🔄 Requesting review follow-up for {len(failed_fixes)} failed fixes", Colors.YELLOW)
+        colored_print(f"   PROCESS: Requesting review follow-up for {len(failed_fixes)} failed fixes", Colors.YELLOW)
         
         # Create follow-up task for code reviewer
         follow_up_description = f"Review {len(failed_fixes)} failed fixes from rewriter"
@@ -2173,23 +2173,23 @@ def main():
                         print(f"  {t['id']}: {t['description']}")
                 elif user_input.lower() == 'project':
                     if agent.current_project_process:
-                        colored_print(f"\n🎯 Current Project Process: {agent.current_project_process}", Colors.BRIGHT_GREEN)
-                        colored_print(f"📂 Workspace: {agent.project_process_workspace}", Colors.GREEN)
-                        colored_print(f"📚 Files loaded: {len(agent.project_process_files)}", Colors.CYAN)
+                        colored_print(f"\nTARGET: Current Project Process: {agent.current_project_process}", Colors.BRIGHT_GREEN)
+                        colored_print(f"FOLDER: Workspace: {agent.project_process_workspace}", Colors.GREEN)
+                        colored_print(f"FILES: Files loaded: {len(agent.project_process_files)}", Colors.CYAN)
                     else:
-                        colored_print("📁 No active project process", Colors.YELLOW)
+                        colored_print("FOLDER: No active project process", Colors.YELLOW)
                         agent.detect_active_project_process()
                 elif user_input.lower().startswith('set_project '):
                     project_name = user_input[12:].strip()
                     agent.set_project_process(project_name)
                 elif user_input.lower() == 'files':
                     if agent.current_project_process:
-                        colored_print(f"\n📚 Project Files for {agent.current_project_process}:", Colors.BRIGHT_CYAN)
+                        colored_print(f"\nFILES: Project Files for {agent.current_project_process}:", Colors.BRIGHT_CYAN)
                         for relative_path, file_info in agent.project_process_files.items():
                             size_kb = file_info['size'] / 1024
                             print(f"  {relative_path} ({size_kb:.1f} KB)")
                     else:
-                        colored_print("📁 No active project process", Colors.YELLOW)
+                        colored_print("FOLDER: No active project process", Colors.YELLOW)
                 elif user_input.lower().startswith('delegate '):
                     # Parse delegation command: delegate "description" to agent_name
                     command_part = user_input[9:].strip()
