@@ -10,7 +10,16 @@ from pathlib import Path
 from datetime import datetime
 
 class AgentStatusMonitor:
-    def __init__(self, workspace_dir="."):
+    def __init__(self, workspace_dir=None):
+        if workspace_dir is None:
+            # Match multi_agent_terminal.py logic for workspace directory
+            current_dir = os.getcwd()
+            if current_dir.endswith('/bin'):
+                workspace_dir = os.path.join(os.path.dirname(current_dir), 'workspace')
+            elif os.path.exists('workspace'):
+                workspace_dir = 'workspace'
+            else:
+                workspace_dir = "."
         self.workspace_dir = Path(workspace_dir)
         self.comm_dir = self.workspace_dir / ".agent_comm"
         

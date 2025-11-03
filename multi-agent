@@ -12,17 +12,19 @@ BIN_DIR="$MULTI_AGENT_ROOT/bin"
 # Multi-Agent AI System Launcher
 # A sophisticated coordination system for specialized AI agents
 
-echo -e "\033[1;32m- Multi-Agent AI System\033[0m"
-echo "=========================="
+echo "Universal Multi-Agent AI System"
+echo "================================"
+echo ""
+echo "FRAMEWORK: Universal AI-powered development (React, Vue, Python, Node.js, Java, Go, C#, Rust)"
 echo ""
 echo "Available agent roles:"
-echo " 1. coordinator - Main orchestrator agent"
-echo " 2. coder - Code analysis and generation"
-echo " 3. code_reviewer - Code quality assurance and optimization"
-echo " 4. code_rewriter - Fixes issues found by code reviewer"
-echo " 5. file_manager - File operations and organization"
-echo " 6. git_manager - Version control operations" 
-echo " 7. researcher - Information gathering and analysis"
+echo " 1. coordinator - Universal project orchestration and workflow management"
+echo " 2. coder - Framework-agnostic code generation and analysis"
+echo " 3. code_reviewer - Cross-framework quality assurance and error detection"
+echo " 4. code_rewriter - Automated code fixing with framework-specific best practices"
+echo " 5. file_manager - Universal project creation across any technology stack"
+echo " 6. git_manager - Framework-aware version control operations" 
+echo " 7. researcher - Technology-agnostic information gathering and best practices"
 echo ""
 
 case "${1:-help}" in
@@ -34,25 +36,8 @@ case "${1:-help}" in
  python3 "$MULTI_AGENT_ROOT/examples/demo_multi_agents.py"
  ;;
  "status")
- if [ -d "$MULTI_AGENT_ROOT/workspace/.agent_comm" ]; then
- echo -e "\033[1;36m-- Agent Communication Status:\033[0m"
- echo "=============================="
- agents_file="$MULTI_AGENT_ROOT/workspace/.agent_comm/agents.json"
- tasks_file="$MULTI_AGENT_ROOT/workspace/.agent_comm/tasks.json"
- messages_file="$MULTI_AGENT_ROOT/workspace/.agent_comm/messages.json"
- 
- if [ -f "$agents_file" ]; then
- echo "Active Agents:"
- python3 -c "import json; data=json.load(open('$agents_file')); [print(f' • {a[\"id\"]} ({a[\"role\"]}) - {a[\"status\"]}') for a in data]" 2>/dev/null || echo " No agents registered"
- fi
- 
- if [ -f "$tasks_file" ]; then
- echo "-- Tasks:"
- python3 -c "import json; data=json.load(open('$tasks_file')); print(f' Total tasks: {len(data)}'); [print(f' • {t[\"id\"]}: {t[\"status\"]}') for t in data[-5:]]" 2>/dev/null || echo " No tasks found"
- fi
- else
- echo -e "\033[1;31m-- No communication directory found. Start an agent first.\033[0m"
- fi
+ # Use the updated agent_status.py script which automatically finds the correct directory
+ python3 "$MULTI_AGENT_ROOT/agent_status.py"
  ;;
  "workspace")
  cd "$MULTI_AGENT_ROOT/workspace"
@@ -88,10 +73,14 @@ case "${1:-help}" in
  "$MULTI_AGENT_ROOT/cleanup_agents_simple.py"
  ;;
  "help"|*)
- echo " Multi-Agent AI System Help"
- echo "==============================="
+ echo "Universal Multi-Agent AI System Help"
+ echo "====================================="
  echo ""
- echo -e "\033[1;32m-- Quick Start:\033[0m"
+ echo "LAUNCH: Quick Start Options:"
+ echo " python3 smart_launcher.py ai-development  # Recommended: full universal team"
+ echo " python3 smart_launcher.py --help          # Show all options and connection guide"
+ echo ""
+ echo "INFO: Individual Agent Launch:"
  echo " ./multi-agent start coordinator main # Start coordinator"
  echo " ./multi-agent start coder dev # Start coder (new terminal)"
  echo " ./multi-agent start code_reviewer reviewer # Start code reviewer"
@@ -105,7 +94,12 @@ case "${1:-help}" in
  echo " ./multi-agent clean # Quick cleanup"
  echo " ./multi-agent cleanup # Deep cleanup (thorough)"
  echo ""
- echo "-- Directory Structure:"
+ echo ""
+ echo "STATUS: System Monitoring:"
+ echo " python3 agent_status.py               # Check system status"
+ echo " python3 agent_status.py --live 5      # Live monitoring"
+ echo ""
+ echo "INFO: Directory Structure:"
  echo " multi-agent/"
  echo " ├── multi-agent # Main entry script" 
  echo " ├── bin/ # Executables"

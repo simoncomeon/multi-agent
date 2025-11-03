@@ -58,16 +58,17 @@ def launch_agent(role, name, method="terminal"):
         
         if system_type == "wsl":
             # WSL-specific terminal launch using Windows Terminal or PowerShell
+            # Note: multi_agent_terminal.py expects <agent_id> <role>
             wsl_terminals = [
                 # Windows Terminal (preferred) - simplified command without read prompt
                 ["wt.exe", "-w", "0", "new-tab", "--title", f"Agent: {role} ({name})", 
-                 "bash", "-c", f"cd '{script_dir}' && python3 '{agent_script}' '{role}' '{name}'"],
+                 "bash", "-c", f"cd '{script_dir}' && python3 '{agent_script}' '{name}' '{role}'"],
                 # PowerShell as fallback
                 ["powershell.exe", "-Command", 
-                 f"Start-Process powershell -ArgumentList '-NoExit', '-Command', \"wsl -e bash -c 'cd {script_dir} && python3 {agent_script} {role} {name}'\""],
+                 f"Start-Process powershell -ArgumentList '-NoExit', '-Command', \"wsl -e bash -c 'cd {script_dir} && python3 {agent_script} {name} {role}'\""],
                 # CMD as last resort  
                 ["cmd.exe", "/c", "start", "cmd", "/k", 
-                 f"wsl -e bash -c \"cd '{script_dir}' && python3 '{agent_script}' '{role}' '{name}'\""]
+                 f"wsl -e bash -c \"cd '{script_dir}' && python3 '{agent_script}' '{name}' '{role}'\""]
             ]
             
             for terminal_cmd in wsl_terminals:
@@ -148,12 +149,12 @@ def launch_agent(role, name, method="terminal"):
         elif system_type == "linux":
             print(f"TIP: Tip: Install gnome-terminal, xterm, or konsole for terminal support")
         
-        subprocess.Popen([sys.executable, str(agent_script), role, name], 
+        subprocess.Popen([sys.executable, str(agent_script), name, role], 
                         cwd=script_dir)
         return True
         
     elif method == "background":
-        subprocess.Popen([sys.executable, str(agent_script), role, name], 
+        subprocess.Popen([sys.executable, str(agent_script), name, role], 
                         cwd=script_dir)
         print(f"Launched {role} agent '{name}' in background")
         return True
