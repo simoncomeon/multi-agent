@@ -1,460 +1,762 @@
 """
-Code Generator Agent - Handles code generation and implementation tasks
+Enhanced Code Generator Agent - Framework-agnostic code generation with proper file handling
 """
 
 import os
-from datetime import datetime
+import re
+import json
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Any, Optional, Union
 
-from ..core.models import Colors
-from ..core.utils import colored_print, gather_file_context, gather_directory_context, gather_project_context
+from ..core.base_agent import BaseAgent, TaskInput, TaskResult, FrameworkDetector
+from ..core.models import AgentRole, Colors
+from ..core.utils import colored_print
 
 
-class CodeGeneratorAgent:
-    """Specialized agent for code generation and implementation"""
-    
-    def __init__(self, terminal_instance, comm_instance):
-        self.terminal = terminal_instance
-        self.comm = comm_instance
-        self.agent_id = "code_generator"
-    
-    def handle_code_generation_task(self, task: Dict) -> Dict:
-        """Handle code generation and file creation/editing"""
-        description = task["description"]
-        
-        colored_print(f"CODE GENERATOR: Processing code generation task", Colors.BRIGHT_CYAN)
-        colored_print(f"   Task: {description}", Colors.CYAN)
-        
-        # Check if this involves file creation or editing
-        if self.requires_file_operations(description):
-            return self.handle_file_based_code_generation(task)
-        else:
-            return self.handle_analysis_and_guidance(task)
-    
-    def requires_file_operations(self, description: str) -> bool:
-        """Check if task requires actual file creation or editing"""
-        file_keywords = [
-            "create file", "write file", "generate file", "implement in",
-            "add to file", "modify file", "edit file", "create component",
-            "implement function", "add class", "write code for", "build", 
-            "develop", "make", "generate", "create", "code"
-        ]
-        desc_lower = description.lower()
-        
-        # Also check for component/app creation patterns
-        creation_patterns = [
-            "create a", "build a", "make a", "develop a", "generate a",
-            "todo", "component", "app", "application", "widget", "module"
-        ]
-        
-        has_file_keywords = any(keyword in desc_lower for keyword in file_keywords)
-        has_creation_patterns = any(pattern in desc_lower for pattern in creation_patterns)
-        
-        return has_file_keywords or has_creation_patterns
-    
-    def handle_file_based_code_generation(self, task: Dict) -> Dict:
-        """Handle code generation that involves creating or editing files"""
-        description = task["description"]
-        
-        # Delegate to file manager for actual file operations
-        file_task_id = self.comm.create_task(
-            task_type="file_management",
-            description=f"File operations for code generation: {description}",
-            assigned_to="file_manager",
-            created_by=self.agent_id,
-            priority=task.get("priority", 1),
-            data={
-                "generation_task": True,
-                "original_description": description,
-                "code_requirements": self.extract_code_requirements(description)
-            }
-        )
-        
-        colored_print(f"   DELEGATED: File operations task {file_task_id} -> file_manager", Colors.GREEN)
-        
-        # Also provide guidance for the implementation
-        guidance = self.analyze_task_and_provide_guidance(description)
-        
-        colored_print(f"\\n=== CODE GENERATION GUIDANCE ===", Colors.BRIGHT_YELLOW)
-        colored_print(guidance, Colors.WHITE)
-        colored_print(f"================================\\n", Colors.BRIGHT_YELLOW)
-        
-        return {
-            "type": "code_generation_with_files",
-            "delegated_task_id": file_task_id,
-            "guidance": guidance,
-            "file_operations": "delegated_to_file_manager",
-            "message": f"Code generation task delegated to file manager. Task ID: {file_task_id}"
-        }
-    
-    def handle_analysis_and_guidance(self, task: Dict) -> Dict:
-        """Handle code generation analysis without file operations"""
-        description = task["description"]
-        
-        # Provide intelligent guidance
-        guidance = self.analyze_task_and_provide_guidance(description)
-        
-        colored_print(f"\\n=== COLLABORATIVE ANALYSIS ===", Colors.BRIGHT_CYAN)
-        colored_print(guidance, Colors.CYAN)
-        colored_print(f"================================\\n", Colors.BRIGHT_CYAN)
-        
-        # Try AI model if available for actual implementation
-        ai_result = self.try_ai_implementation(description)
-        
-        return {
-            "type": "collaborative_guidance",
-            "guidance": guidance,
-            "ai_implementation": ai_result,
-            "approach": "collaborative",
-            "message": "This task requires AI model collaboration for implementation. The guidance above provides architectural direction."
-        }
-    
-    def extract_code_requirements(self, description: str) -> Dict:
-        """Extract code requirements for file manager"""
-        desc_lower = description.lower()
-        
-        requirements = {
-            "language": "javascript",  # default
-            "file_type": "component",
-            "framework": None,
-            "features": [],
-            "structure": "single_file"
-        }
-        
-        # Language detection
-        if "python" in desc_lower:
-            requirements["language"] = "python"
-        elif "typescript" in desc_lower:
-            requirements["language"] = "typescript"
-        elif "react" in desc_lower:
-            requirements["language"] = "javascript"
-            requirements["framework"] = "react"
-        elif "vue" in desc_lower:
-            requirements["language"] = "javascript"
-            requirements["framework"] = "vue"
-        
-        # Feature extraction
-        if "todo" in desc_lower or "task" in desc_lower:
-            requirements["features"] = ["add_item", "remove_item", "toggle_complete", "persistence"]
-        elif "time" in desc_lower or "clock" in desc_lower:
-            requirements["features"] = ["real_time_display", "formatting", "timezone_support"]
-        elif "counter" in desc_lower:
-            requirements["features"] = ["increment", "decrement", "reset", "state_management"]
-        
-        return requirements
-    
-    def analyze_task_with_context(self, description: str, context_paths: List[Union[str, Path]] = None) -> str:
-        """Analyze task with file/directory context for better AI responses"""
-        
-        # Gather context from specified paths
-        context_data = {}
-        if context_paths:
-            colored_print(f"   CONTEXT: Gathering context from {len(context_paths)} paths", Colors.CYAN)
-            
-            for path in context_paths:
-                path_obj = Path(path)
-                colored_print(f"     • {path_obj.name}", Colors.WHITE)
-                
-                if path_obj.is_file():
-                    context_data[f"file_{path_obj.name}"] = gather_file_context(path_obj)
-                elif path_obj.is_dir():
-                    context_data[f"dir_{path_obj.name}"] = gather_directory_context(path_obj)
-        
-        # Also gather current project context if available
-        if hasattr(self.terminal, 'current_project_process') and self.terminal.current_project_process:
-            project_path = os.path.join(self.terminal.workspace_dir, self.terminal.current_project_process)
-            if os.path.exists(project_path):
-                colored_print(f"   PROJECT: Adding current project context: {self.terminal.current_project_process}", Colors.CYAN)
-                context_data["current_project"] = gather_project_context(project_path)
-        
-        # Create enhanced AI input with context
-        context_summary = self.format_context_for_ai(context_data)
-        
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="CODE_GENERATION_ANALYSIS",
-            task_description=description,
-            context_type="PROJECT_AWARE_GENERATION",
-            requirements=[
-                "Analyze the task in context of the existing codebase",
-                "Provide specific, actionable recommendations",
-                "Consider existing patterns and architecture", 
-                "Suggest file locations and naming conventions",
-                "Identify dependencies and imports needed"
-            ],
-            constraints=[
-                "Match existing code style and patterns",
-                "Follow project conventions and structure",
-                "Consider existing dependencies and tools",
-                "Maintain consistency with current architecture"
-            ],
-            expected_output="CONTEXTUAL_ANALYSIS",
-            additional_context=context_summary
-        )
-        
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
-        
-        if ai_result.get('status') == 'success':
-            return ai_result.get('analysis', 'Context-aware analysis completed')
-        else:
-            # Fallback to basic analysis
-            return self.analyze_task_and_provide_guidance(description)
-    
-    def format_context_for_ai(self, context_data: Dict) -> str:
-        """Format gathered context data for AI input"""
-        if not context_data:
-            return "No additional context provided"
-        
-        context_parts = []
-        
-        for key, data in context_data.items():
-            if "error" in data:
-                context_parts.append(f"{key}: {data['error']}")
-                continue
-            
-            if key.startswith("file_"):
-                if data.get("readable") and data.get("content"):
-                    context_parts.append(f"""
-FILE: {data['path']}
-Size: {data.get('size_formatted', 'unknown')}
-Extension: {data.get('extension', 'none')}
-Content:
-{data['content'][:2000]}{'...[truncated]' if len(data['content']) > 2000 else ''}
-""")
+class EnhancedCodeGeneratorAgent(BaseAgent):
+        """
+        Enhanced code generator agent with proper file writing capabilities,
+        framework detection, and intelligent code generation.
+        """
+
+        def __init__(self, agent_id: str, workspace_dir: str, **kwargs):
+                super().__init__(agent_id, AgentRole.CODER, workspace_dir, **kwargs)
+                # Code generation specific settings
+                self.template_cache = {}
+                self.language_parsers = self._init_language_parsers()
+
+        def _define_capabilities(self) -> Dict[str, bool]:
+                """Define code generator capabilities"""
+                return {
+                        'code_generation': True,
+                        'file_creation': True,
+                        'file_modification': True,
+                        'framework_adaptation': True,
+                        'template_processing': True,
+                        'syntax_validation': True,
+                        'dependency_resolution': True,
+                        'project_scaffolding': True
+                }
+
+        def _define_supported_file_types(self) -> List[str]:
+                """Support wide range of programming file types"""
+                return [
+                        # Web technologies
+                        '.js', '.jsx', '.ts', '.tsx', '.vue', '.html', '.css', '.scss', '.sass',
+                        # Python
+                        '.py', '.pyx', '.pyi',
+                        # Configuration
+                        '.json', '.yaml', '.yml', '.toml', '.ini', '.env',
+                        # Documentation
+                        '.md', '.rst', '.txt',
+                        # Others
+                        '.go', '.rs', '.java', '.cpp', '.c', '.h', '.php', '.rb'
+                ]
+
+        def _init_language_parsers(self) -> Dict[str, Any]:
+                """Initialize language-specific parsers and validators"""
+                return {
+                        'python': {
+                                'keywords': ['def', 'class', 'import', 'from', 'if', 'for', 'while'],
+                                'indent_style': 'spaces',
+                                'indent_size': 4
+                        },
+                        'javascript': {
+                                'keywords': ['function', 'const', 'let', 'var', 'class', 'import', 'export'],
+                                'indent_style': 'spaces',
+                                'indent_size': 2
+                        },
+                        'typescript': {
+                                'keywords': ['interface', 'type', 'function', 'const', 'let', 'class'],
+                                'indent_style': 'spaces',
+                                'indent_size': 2
+                        }
+                }
+
+        def _is_task_type_supported(self, task_type: str) -> bool:
+                """Check if task type is supported by code generator"""
+                supported_types = [
+                        'code_generation', 'file_creation', 'component_creation',
+                        'function_implementation', 'class_creation', 'project_scaffolding',
+                        'code_enhancement', 'template_generation'
+                ]
+                return task_type in supported_types
+
+        def _execute_specific_task(
+                self,
+                task_input: TaskInput,
+                context: Dict
+        ) -> TaskResult:
+                """Execute code generation task based on input type and context"""
+                # Detect framework and adapt approach
+                framework = FrameworkDetector.detect_framework(context)
+                conventions = FrameworkDetector.get_framework_conventions(framework)
+                colored_print(f"Detected framework: {framework}", Colors.CYAN)
+
+                # Determine task approach based on inputs and targets
+                if task_input.target_file:
+                        return self._handle_targeted_file_generation(
+                                task_input, context, framework, conventions)
+                elif task_input.target_directory:
+                        return self._handle_directory_generation(
+                                task_input, context, framework, conventions)
+                elif task_input.has_files():
+                        return self._handle_file_enhancement(
+                                task_input, context, framework, conventions)
                 else:
-                    context_parts.append(f"FILE: {data['path']} (Size: {data.get('size_formatted', 'unknown')}) - Not readable as text")
-            
-            elif key.startswith("dir_"):
-                context_parts.append(f"""
-DIRECTORY: {data['path']}
-Files found: {data.get('file_count', 0)}
-Structure overview: {len(data.get('structure', []))} items
-""")
-            
-            elif key == "current_project":
-                context_parts.append(f"""
-PROJECT: {data['project_name']} ({data.get('project_type', 'unknown')})
-Location: {data['project_path']}
-Key files: {', '.join(data.get('key_files', {}).keys())}
-Package info: {data.get('package_info', {})}
-""")
-        
-        return "\n".join(context_parts)
-    
-    def generate_code_with_context(self, description: str, context_paths: List[Union[str, Path]] = None, target_file: str = None) -> Dict:
-        """Generate code with full context awareness"""
-        
-        colored_print(f"   GENERATING: Context-aware code generation", Colors.BRIGHT_GREEN)
-        
-        # Gather context
-        context_data = {}
-        if context_paths:
-            for path in context_paths:
-                path_obj = Path(path)
-                if path_obj.is_file():
-                    context_data[f"reference_{path_obj.name}"] = gather_file_context(path_obj)
-                elif path_obj.is_dir():
-                    context_data[f"reference_{path_obj.name}"] = gather_directory_context(path_obj)
-        
-        # Add target file context if it exists
-        if target_file and os.path.exists(target_file):
-            context_data["target_file"] = gather_file_context(target_file)
-        
-        # Add current project context
-        if hasattr(self.terminal, 'current_project_process') and self.terminal.current_project_process:
-            project_path = os.path.join(self.terminal.workspace_dir, self.terminal.current_project_process)
-            if os.path.exists(project_path):
-                context_data["project"] = gather_project_context(project_path)
-        
-        context_summary = self.format_context_for_ai(context_data)
-        
-        # Enhanced AI operation for code generation
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="CONTEXTUAL_CODE_GENERATION",
-            task_description=f"Generate code for: {description}" + (f" in file: {target_file}" if target_file else ""),
-            context_type="FULL_PROJECT_CONTEXT",
-            requirements=[
-                "Generate functional, ready-to-use code",
-                "Match existing code patterns and style",
-                "Include proper imports and dependencies",
-                "Follow project conventions and structure",
-                "Add appropriate error handling and validation"
-            ],
-            constraints=[
-                "Use existing project dependencies where possible",
-                "Follow established naming conventions",
-                "Maintain consistency with existing architecture",
-                "Generate complete, working implementations"
-            ],
-            expected_output="GENERATED_CODE",
-            additional_context=context_summary
+                        return self._handle_general_code_generation(
+                                task_input, context, framework, conventions)
+
+        def _handle_targeted_file_generation(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict
+        ) -> TaskResult:
+                """Handle generation of code for a specific target file"""
+                target_file = Path(task_input.target_file)
+                colored_print(
+                        f" Generating code for target file: {target_file}",
+                        Colors.BRIGHT_CYAN)
+
+                # Check if file exists for modification vs creation
+                file_exists = target_file.exists()
+                existing_content = ""
+                if file_exists:
+                        existing_content = self.read_file(target_file) or ""
+                        colored_print(
+                                f" Existing file found ({len(existing_content)} chars)",
+                                Colors.YELLOW)
+
+                # Create AI prompt for targeted code generation
+                prompt = self._create_targeted_generation_prompt(
+                        task_input, context, framework, conventions, existing_content, file_exists
+                )
+
+                # Execute AI operation
+                ai_result = self.execute_ai_operation(prompt)
+                if not ai_result['success']:
+                        return TaskResult(
+                                success=False,
+                                message=f"AI code generation failed: {ai_result.get('error', 'Unknown error')}",
+                                metadata={'ai_error': ai_result.get('error')}
+                        )
+
+                # Extract and process generated code
+                generated_code = self._extract_code_from_ai_response(
+                        ai_result['response'], target_file.suffix)
+                if not generated_code:
+                        return TaskResult(
+                                success=False,
+                                message="No valid code extracted from AI response"
+                        )
+
+                # Validate generated code
+                validation_result = self._validate_generated_code(
+                        generated_code, target_file.suffix)
+                if not validation_result['valid']:
+                        colored_print(
+                                f" Code validation issues: {validation_result['issues']}",
+                                Colors.YELLOW)
+
+                # Write code to target file
+                success = self.write_file(
+                        target_file,
+                        generated_code,
+                        backup=file_exists)
+                if success:
+                        files_list = [str(target_file)]
+                        return TaskResult(
+                                success=True,
+                                message=f"Successfully {'updated' if file_exists else 'created'} {target_file}",
+                                files_created=[] if file_exists else files_list,
+                                files_modified=files_list if file_exists else [],
+                                output_content=generated_code,
+                                metadata={
+                                        'framework': framework,
+                                        'file_size': len(generated_code),
+                                        'validation': validation_result
+                                }
+                        )
+                else:
+                        return TaskResult(
+                                success=False,
+                                message=f"Failed to write code to {target_file}"
+                        )
+
+        def _handle_directory_generation(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict
+        ) -> TaskResult:
+                """Handle generation of multiple files in a target directory"""
+                target_dir = Path(task_input.target_directory)
+                colored_print(
+                        f" Generating project structure in: {target_dir}",
+                        Colors.BRIGHT_CYAN)
+
+                # Ensure target directory exists
+                target_dir.mkdir(parents=True, exist_ok=True)
+
+                # Create AI prompt for project structure generation
+                prompt = self._create_project_structure_prompt(
+                        task_input, context, framework, conventions, target_dir
+                )
+
+                # Execute AI operation
+                ai_result = self.execute_ai_operation(prompt)
+                if not ai_result['success']:
+                        return TaskResult(
+                                success=False,
+                                message=f"AI project generation failed: {ai_result.get('error', 'Unknown error')}"
+                        )
+
+                # Parse AI response for file structure
+                file_structure = self._parse_project_structure_response(
+                        ai_result['response'])
+
+                # Generate files based on structure
+                created_files = []
+                for file_info in file_structure:
+                        file_path = target_dir / file_info['path']
+                        success = self.write_file(file_path, file_info['content'])
+                        if success:
+                                created_files.append(str(file_path))
+                return TaskResult(
+                        success=len(created_files) > 0,
+                        message=f"Created {len(created_files)} files in {target_dir}",
+                        files_created=created_files,
+                        metadata={
+                                'framework': framework,
+                                'total_files': len(file_structure),
+                                'successful_files': len(created_files)
+                        }
+                )
+
+        def _handle_file_enhancement(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict
+        ) -> TaskResult:
+                """Handle enhancement/modification of existing files"""
+                colored_print(f" Enhancing {len(task_input.files)} files", Colors.BRIGHT_CYAN)
+                modified_files = []
+                results = []
+                for file_path in task_input.files:
+                        file_context = context['files'].get(str(file_path), {})
+                        if not file_context.get('readable'):
+                                colored_print(f" Skipping unreadable file: {file_path}", Colors.YELLOW)
+                                continue
+
+                        # Create enhancement prompt for this file
+                        prompt = self._create_file_enhancement_prompt(
+                                task_input, file_path, file_context, framework, conventions
+                        )
+
+                        # Execute AI operation for this file
+                        ai_result = self.execute_ai_operation(prompt)
+                        if ai_result['success']:
+                                enhanced_code = self._extract_code_from_ai_response(
+                                        ai_result['response'], file_path.suffix
+                                )
+                                if enhanced_code and self.write_file(file_path, enhanced_code, backup=True):
+                                        modified_files.append(str(file_path))
+                                        results.append(f"Enhanced {file_path.name}")
+                        else:
+                                results.append(f"Failed to enhance {file_path.name}: {ai_result.get('error', 'Unknown error')}")
+
+                return TaskResult(
+                        success=len(modified_files) > 0,
+                        message=f"Enhanced {len(modified_files)}/{len(task_input.files)} files",
+                        files_modified=modified_files,
+                        metadata={'enhancement_results': results, 'framework': framework}
+                )
+
+        def _handle_general_code_generation(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict
+        ) -> TaskResult:
+                """Handle general code generation without specific targets"""
+                colored_print(f" General code generation", Colors.BRIGHT_CYAN)
+
+                # Create general generation prompt
+                prompt = self._create_general_generation_prompt(
+                        task_input, context, framework, conventions
+                )
+
+                # Execute AI operation
+                ai_result = self.execute_ai_operation(prompt)
+                if not ai_result['success']:
+                        return TaskResult(
+                                success=False,
+                                message=f"AI code generation failed: {ai_result.get('error', 'Unknown error')}"
+                        )
+
+                # For general generation, provide the code as output content
+                # and suggest file locations
+                generated_content = ai_result['response']
+                file_suggestions = self._analyze_code_for_file_suggestions(generated_content, framework)
+                return TaskResult(
+                        success=True,
+                        message="Code generation completed - review output for implementation",
+                        output_content=generated_content,
+                        metadata={
+                                'framework': framework,
+                                'suggested_files': file_suggestions,
+                                'requires_manual_implementation': True
+                        }
+                )
+
+        def _create_targeted_generation_prompt(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict,
+                existing_content: str,
+                file_exists: bool
+        ) -> str:
+                """Create AI prompt for targeted file generation"""
+                base_prompt = self.create_ai_prompt(task_input, context, "TARGETED_CODE_GENERATION")
+
+                # Add specific instructions for targeted generation
+                additional_instructions = [
+                        "",
+                        "TARGETED FILE GENERATION INSTRUCTIONS:",
+                        f"- Target file: {task_input.target_file}",
+                        f"- Framework: {framework}",
+                        f"- File extension: {Path(task_input.target_file).suffix}",
+                        f"- Action: {'MODIFY' if file_exists else 'CREATE'}",
+                ]
+                if file_exists and existing_content:
+                        additional_instructions.extend([
+                                "",
+                                "EXISTING FILE CONTENT:",
+                                "```",
+                                existing_content[:2000] + ("...[truncated]" if len(existing_content) > 2000 else ""),
+                                "```",
+                                "",
+                                "MODIFICATION INSTRUCTIONS:",
+                                "- Preserve existing functionality unless explicitly changing it",
+                                "- Add the requested functionality seamlessly",
+                                "- Maintain existing code style and patterns",
+                                "- Include proper imports and dependencies"
+                        ])
+                else:
+                        additional_instructions.extend([
+                                "",
+                                "FILE CREATION INSTRUCTIONS:",
+                                "- Create a complete, working file",
+                                "- Include all necessary imports and dependencies",
+                                "- Follow framework conventions and best practices",
+                                "- Add appropriate error handling and validation",
+                                "- Include helpful comments for complex logic"
+                        ])
+
+                # Add framework-specific instructions
+                if conventions:
+                        additional_instructions.extend([
+                                "",
+                                "FRAMEWORK CONVENTIONS:",
+                                f"- Naming convention: {conventions.get('naming_convention', 'unknown')}",
+                                f"- File extensions: {', '.join(conventions.get('file_extensions', []))}",
+                                f"- Import style: {conventions.get('import_style', 'unknown')}"
+                        ])
+
+                additional_instructions.extend([
+                        "",
+                        "OUTPUT FORMAT:",
+                        "- Provide ONLY the complete file content",
+                        "- No explanations, comments, or markdown formatting",
+                        "- The output will be written directly to the file",
+                        "- Ensure the code is syntactically correct and complete"
+                ])
+                return base_prompt + "\n" + "\n".join(additional_instructions)
+
+        def _create_project_structure_prompt(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict,
+                target_dir: Path
+        ) -> str:
+                """Create AI prompt for project structure generation"""
+                base_prompt = self.create_ai_prompt(task_input, context, "PROJECT_STRUCTURE_GENERATION")
+                additional_instructions = [
+                        "",
+                        "PROJECT STRUCTURE GENERATION INSTRUCTIONS:",
+                        f"- Target directory: {target_dir}",
+                        f"- Framework: {framework}",
+                        f"- Generate complete project structure with multiple files",
+                ]
+                if conventions.get('directory_structure'):
+                        additional_instructions.extend([
+                                f"- Recommended directories: {', '.join(conventions['directory_structure'])}",
+                        ])
+
+                additional_instructions.extend([
+                        "",
+                        "OUTPUT FORMAT:",
+                        "Structure your response as follows for each file:",
+                        "FILE: path/to/file.ext",
+                        "```",
+                        "file content here",
+                        "```",
+                        "",
+                        "Repeat this pattern for all files in the project structure.",
+                        "Create a complete, functional project with proper organization."
+                ])
+                return base_prompt + "\n" + "\n".join(additional_instructions)
+
+        def _create_file_enhancement_prompt(
+                self,
+                task_input: TaskInput,
+                file_path: Path,
+                file_context: Dict,
+                framework: str,
+                conventions: Dict
+        ) -> str:
+                """Create AI prompt for file enhancement"""
+                file_content = file_context.get('content', '')
+                prompt_parts = [
+                        f"AGENT ROLE: CODE_ENHANCEMENT",
+                        f"OPERATION: ENHANCE_EXISTING_FILE",
+                        "",
+                        f"TASK DESCRIPTION:",
+                        task_input.description,
+                        "",
+                        f"TARGET FILE: {file_path}",
+                        f"FRAMEWORK: {framework}",
+                        "",
+                        "CURRENT FILE CONTENT:",
+                        "```",
+                        file_content,
+                        "```",
+                        "",
+                        "ENHANCEMENT INSTRUCTIONS:",
+                        "- Enhance the existing code based on the task description",
+                        "- Preserve all existing functionality",
+                        "- Add new features seamlessly",
+                        "- Follow existing code style and patterns",
+                        "- Improve code quality where appropriate",
+                        "",
+                        "OUTPUT FORMAT:",
+                        "- Provide ONLY the complete enhanced file content",
+                        "- No explanations or markdown formatting",
+                        "- Ensure all existing functionality is preserved",
+                        "- The output will replace the existing file content"
+                ]
+                if task_input.requirements:
+                        prompt_parts.extend([
+                                "",
+                                "REQUIREMENTS:",
+                                "\n".join(f"- {req}" for req in task_input.requirements)
+                        ])
+                if task_input.constraints:
+                        prompt_parts.extend([
+                                "",
+                                "CONSTRAINTS:",
+                                "\n".join(f"- {constraint}" for constraint in task_input.constraints)
+                        ])
+                return "\n".join(prompt_parts)
+
+        def _create_general_generation_prompt(
+                self,
+                task_input: TaskInput,
+                context: Dict,
+                framework: str,
+                conventions: Dict
+        ) -> str:
+                """Create AI prompt for general code generation"""
+                base_prompt = self.create_ai_prompt(task_input, context, "GENERAL_CODE_GENERATION")
+                additional_instructions = [
+                        "",
+                        "GENERAL CODE GENERATION INSTRUCTIONS:",
+                        f"- Framework: {framework}",
+                        "- Generate complete, working code implementation",
+                        "- Include multiple files if the solution requires it",
+                        "- Provide clear file structure recommendations",
+                        "",
+                        "OUTPUT FORMAT:",
+                        "For each file in your solution, use this format:",
+                        "FILE: suggested/path/filename.ext",
+                        "```",
+                        "file content here",
+                        "```",
+                        "",
+                        "Include all necessary files for a complete implementation.",
+                        "Add comments explaining the overall structure and key components."
+                ]
+                return base_prompt + "\n" + "\n".join(additional_instructions)
+
+        def _extract_code_from_ai_response(self, response: str, file_extension: str) -> str:
+                """Extract clean code content from AI response"""
+                # Remove common AI response formatting
+                cleaned_response = response.strip()
+
+                # Try to extract code from markdown code blocks
+                code_block_pattern = r'```(?:\w+\s*)?\n?(.*?)```'
+                matches = re.findall(code_block_pattern, cleaned_response, re.DOTALL)
+                if matches:
+                        # Use the largest code block (likely the main implementation)
+                        code_content = max(matches, key=len).strip()
+                else:
+                        # If no code blocks, use the entire response but clean it up
+                        code_content = cleaned_response
+
+                # Remove common AI response prefixes/suffixes
+                prefixes_to_remove = [
+                        "Here's the implementation:",
+                        "Here's the code:",
+                        "Here's your solution:",
+                        "The implementation is:",
+                        "```" + file_extension.lstrip('.'),
+                        "```"
+                ]
+                for prefix in prefixes_to_remove:
+                        if code_content.startswith(prefix):
+                                code_content = code_content[len(prefix):].strip()
+
+                # Remove trailing explanatory text
+                lines = code_content.split('\n')
+
+                # Find the last line that looks like code (has indentation or common code patterns)
+                last_code_line = len(lines) - 1
+                for i in range(len(lines) - 1, -1, -1):
+                        line = lines[i].strip()
+                        if (
+                                line and (
+                                        line.startswith((' ', '\t')) or  # Indented
+                                        any(keyword in line for keyword in ['def ', 'class ', 'function ', 'const ', 'let ', 'var ']) or
+                                        line.endswith((';', '{', '}', ')', ']')) or
+                                        '=' in line
+                                )
+                        ):
+                                last_code_line = i
+                                break
+
+                # Keep only up to the last code line
+                code_content = '\n'.join(lines[:last_code_line + 1])
+                return code_content.strip()
+
+        def _validate_generated_code(self, code: str, file_extension: str) -> Dict[str, Any]:
+                """Validate generated code for syntax and structure"""
+                validation_result = {
+                        'valid': True,
+                        'issues': [],
+                        'warnings': [],
+                        'language': file_extension.lstrip('.')
+                }
+                try:
+                        # Basic syntax validation based on file type
+                        if file_extension in ['.py']:
+                                self._validate_python_code(code, validation_result)
+                        elif file_extension in ['.js', '.jsx', '.ts', '.tsx']:
+                                self._validate_javascript_code(code, validation_result)
+                        elif file_extension in ['.json']:
+                                self._validate_json_code(code, validation_result)
+
+                        # General validations
+                        if not code.strip():
+                                validation_result['valid'] = False
+                                validation_result['issues'].append("Generated code is empty")
+                        if len(code.splitlines()) < 2:
+                                validation_result['warnings'].append("Generated code is very short")
+                except Exception as e:
+                        validation_result['issues'].append(f"Validation error: {str(e)}")
+                        validation_result['valid'] = len(validation_result['issues']) == 0
+                return validation_result
+
+        def _validate_python_code(self, code: str, result: Dict) -> None:
+                """Validate Python code syntax"""
+                try:
+                        compile(code, '<string>', 'exec')
+                except SyntaxError as e:
+                        result['issues'].append(f"Python syntax error: {e}")
+                except Exception as e:
+                        result['warnings'].append(f"Python compilation warning: {e}")
+
+        def _validate_javascript_code(self, code: str, result: Dict) -> None:
+                """Basic JavaScript code validation"""
+                # Check for basic syntax patterns
+                if code.count('{') != code.count('}'):
+                        result['issues'].append("Mismatched curly braces")
+                if code.count('(') != code.count(')'):
+                        result['issues'].append("Mismatched parentheses")
+                if code.count('[') != code.count(']'):
+                        result['issues'].append("Mismatched square brackets")
+
+        def _validate_json_code(self, code: str, result: Dict) -> None:
+                """Validate JSON syntax"""
+                try:
+                        json.loads(code)
+                except json.JSONDecodeError as e:
+                        result['issues'].append(f"JSON syntax error: {e}")
+
+        def _parse_project_structure_response(self, response: str) -> List[Dict]:
+                """Parse AI response for project structure with multiple files"""
+                files = []
+                current_file = None
+                current_content = []
+                in_code_block = False
+                for line in response.split('\n'):
+                        line_stripped = line.strip()
+                        # Check for file declaration
+                        if line_stripped.startswith('FILE:'):
+                                # Save previous file if exists
+                                if current_file:
+                                        files.append({
+                                                'path': current_file,
+                                                'content': '\n'.join(current_content).strip()
+                                        })
+                                # Start new file
+                                current_file = line_stripped[5:].strip()
+                                current_content = []
+                                in_code_block = False
+                                continue
+
+                        # Check for code block markers
+                        if line_stripped.startswith('```'):
+                                in_code_block = not in_code_block
+                                continue
+
+                        # Collect content if we're in a file and in a code block
+                        if current_file and in_code_block:
+                                current_content.append(line)
+
+                # Don't forget the last file
+                if current_file:
+                        files.append({
+                                'path': current_file,
+                                'content': '\n'.join(current_content).strip()
+                        })
+                return files
+
+        def _analyze_code_for_file_suggestions(self, code: str, framework: str) -> List[Dict]:
+                """Analyze generated code to suggest file organization"""
+                suggestions = []
+
+                # Look for class definitions
+                class_matches = re.findall(r'class\s+(\w+)', code)
+                for class_name in class_matches:
+                        if framework == 'python':
+                                filename = f"{class_name.lower()}.py"
+                        else:
+                                filename = f"{class_name}.js"
+                        suggestions.append({
+                                'type': 'class',
+                                'name': class_name,
+                                'suggested_file': filename,
+                                'reason': f'Class {class_name} definition found'
+                        })
+
+                # Look for function definitions
+                if framework == 'python':
+                        func_matches = re.findall(r'def\s+(\w+)', code)
+                else:
+                        func_matches = re.findall(r'function\s+(\w+)|const\s+(\w+)\s*=', code)
+                        func_matches = [f[0] or f[1] for f in func_matches if f[0] or f[1]]
+                for func_name in func_matches:
+                        if len(func_matches) == 1:  # Single function, suggest utils file
+                                suggestions.append({
+                                        'type': 'function',
+                                        'name': func_name,
+                                        'suggested_file': f"utils.{framework.split('/')[0] if '/' in framework else framework}",
+                                        'reason': f'Single function {func_name} found'
+                                })
+                return suggestions
+
+        def _ai_fallback_response(self, prompt: str) -> Dict[str, Any]:
+                """Provide intelligent fallback when AI is unavailable"""
+                return {
+                        'success': True,
+                        'response': self._generate_fallback_template(prompt),
+                        'fallback': True
+                }
+
+        def _generate_fallback_template(self, prompt: str) -> str:
+                """Generate basic code template when AI is unavailable"""
+                # Analyze prompt for language and type
+                if 'python' in prompt.lower() or '.py' in prompt:
+                        return '''# Generated code template
+# TODO: Implement functionality as described
+
+def main():
+        """Main function - implement your logic here"""
+        pass
+
+if __name__ == "__main__":
+        main()
+'''
+                elif any(lang in prompt.lower() for lang in ['javascript', 'react', '.js', '.jsx']):
+                        return '''// Generated code template
+// TODO: Implement functionality as described
+
+function main() {
+        // Implement your logic here
+}
+
+export default main;
+'''
+                else:
+                        return '''// Generated code template
+// TODO: Implement functionality as described
+// This is a fallback template - customize as needed
+'''
+
+
+# Example usage functions for easy integration
+def create_code_generator(workspace_dir: str, agent_id: str = "enhanced_code_generator") -> EnhancedCodeGeneratorAgent:
+        """Factory function to create enhanced code generator"""
+        return EnhancedCodeGeneratorAgent(agent_id, workspace_dir)
+
+
+def generate_code_for_file(agent: EnhancedCodeGeneratorAgent, description: str,
+                                                   target_file: str, **kwargs) -> TaskResult:
+        """Convenience function for targeted file generation"""
+        task_input = TaskInput(
+                task_description=description,
+                target_file=target_file,
+                task_type='code_generation',
+                requirements=kwargs.get('requirements', []),
+                constraints=kwargs.get('constraints', []),
+                **kwargs
         )
-        
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
-        
-        return {
-            "success": ai_result.get('status') == 'success',
-            "generated_code": ai_result.get('generated_code', ''),
-            "file_suggestions": ai_result.get('file_suggestions', []),
-            "dependencies": ai_result.get('dependencies', []),
-            "next_steps": ai_result.get('next_steps', []),
-            "context_used": len(context_data),
-            "summary": ai_result.get('summary', 'Context-aware code generation completed')
-        }
-    
-    def analyze_task_and_provide_guidance(self, description: str) -> str:
-        """Universal task analysis using AI collaboration with standardized input/output"""
-        
-        # Standardized AI Input
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="TASK_ANALYSIS",
-            task_description=description,
-            context_type="PROJECT_ANALYSIS"
+        return agent.execute_task(task_input)
+
+
+def generate_project_structure(agent: EnhancedCodeGeneratorAgent, description: str,
+                                                           target_directory: str, **kwargs) -> TaskResult:
+        """Convenience function for project structure generation"""
+        task_input = TaskInput(
+                task_description=description,
+                target_directory=target_directory,
+                task_type='project_scaffolding',
+                requirements=kwargs.get('requirements', []),
+                constraints=kwargs.get('constraints', []),
+                **kwargs
         )
-        
-        colored_print(f"   AGENT: Universal AI task analysis with standardized input", Colors.BRIGHT_CYAN)
-        
-        # Try AI analysis with standardized input
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
-        
-        if ai_result.get('status') == 'success':
-            return self.process_standardized_ai_output(ai_result, "TASK_ANALYSIS")
-        
-        # Fallback to basic analysis if AI unavailable
-        return self.provide_fallback_guidance(description)
-    
-    def provide_fallback_guidance(self, description: str) -> str:
-        """Provide fallback guidance when AI is unavailable"""
-        
-        desc_lower = description.lower()
-        analysis = {
-            "framework": None,
-            "component_type": None,
-            "features": [],
-            "suggested_approach": []
-        }
-        
-        # Framework detection
-        if "react" in desc_lower:
-            analysis["framework"] = "React"
-            analysis["suggested_approach"].append("Use functional components with hooks")
-            analysis["suggested_approach"].append("Consider state management needs")
-        elif "vue" in desc_lower:
-            analysis["framework"] = "Vue"
-            analysis["suggested_approach"].append("Use composition API for modern Vue development")
-        elif "python" in desc_lower:
-            analysis["framework"] = "Python"
-            analysis["suggested_approach"].append("Follow PEP 8 style guidelines")
-            analysis["suggested_approach"].append("Consider using type hints")
-        elif "node" in desc_lower or "javascript" in desc_lower:
-            analysis["framework"] = "Node.js/JavaScript"
-            analysis["suggested_approach"].append("Use modern ES6+ features")
-        
-        # Component type detection
-        if "time" in desc_lower or "clock" in desc_lower:
-            analysis["component_type"] = "Time/Clock Display"
-            analysis["features"] = ["real-time updates", "date formatting", "time formatting"]
-            analysis["suggested_approach"].append("Implement timer with setInterval")
-            analysis["suggested_approach"].append("Consider timezone handling")
-        elif "todo" in desc_lower or "task" in desc_lower:
-            analysis["component_type"] = "Task Management"
-            analysis["features"] = ["add/remove items", "mark complete", "persistence"]
-            analysis["suggested_approach"].append("Use local state or localStorage")
-            analysis["suggested_approach"].append("Consider CRUD operations")
-        elif "app" in desc_lower:
-            analysis["component_type"] = "Application"
-            analysis["features"] = ["user interface", "routing", "state management"]
-            analysis["suggested_approach"].append("Plan component hierarchy")
-            analysis["suggested_approach"].append("Consider data flow patterns")
-        
-        # Generate intelligent guidance
-        guidance = f'''TASK ANALYSIS: {description}
-{'=' * 60}
+        return agent.execute_task(task_input)
 
-FRAMEWORK DETECTED: {analysis["framework"] or "Not specified - recommend clarifying"}
-COMPONENT TYPE: {analysis["component_type"] or "Generic component"}
-SUGGESTED FEATURES: {", ".join(analysis["features"]) if analysis["features"] else "Basic functionality"}
 
-ARCHITECTURAL GUIDANCE:
-{chr(10).join(f"• {approach}" for approach in analysis["suggested_approach"])}
-
-IMPLEMENTATION STRATEGY:
-This task requires collaborative development between AI model and human developer.
-
-RECOMMENDED WORKFLOW:
-1. AI Model: Generate initial implementation based on requirements
-2. Human Developer: Review and customize for specific needs  
-3. Collaborative Refinement: Iterate based on testing and feedback
-
-TECHNICAL CONSIDERATIONS:
-• Follow framework best practices and conventions
-• Implement proper error handling and edge cases
-• Consider accessibility and user experience
-• Plan for testing and maintainability
-
-NEXT STEPS:
-• Activate AI model for implementation generation
-• Review generated code for project-specific requirements
-• Test implementation and iterate as needed'''
-        
-        return guidance
-    
-    def try_ai_implementation(self, description: str) -> Dict:
-        """Try to generate actual implementation using AI model"""
-        
-        # Create standardized AI input for implementation
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="CODE_GENERATION",
-            task_description=description,
-            context_type="IMPLEMENTATION",
-            requirements=[
-                "Generate complete, working code",
-                "Follow best practices and conventions",
-                "Include proper error handling",
-                "Add comprehensive comments"
-            ],
-            constraints=[
-                "Use modern language features",
-                "Ensure code is maintainable",
-                "Include proper imports/dependencies",
-                "Follow project structure"
-            ],
-            expected_output="COMPLETE_IMPLEMENTATION"
+def enhance_existing_files(agent: EnhancedCodeGeneratorAgent, description: str,
+                                                   files: List[str], **kwargs) -> TaskResult:
+        """Convenience function for file enhancement"""
+        task_input = TaskInput(
+                task_description=description,
+                files=files,
+                task_type='file_enhancement',
+                requirements=kwargs.get('requirements', []),
+                constraints=kwargs.get('constraints', []),
+                **kwargs
         )
-        
-        # Execute AI operation
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
-        
-        if ai_result.get('status') == 'success':
-            return {
-                "status": "success",
-                "implementation": ai_result.get('implementation', ''),
-                "files_created": ai_result.get('files_created', []),
-                "dependencies": ai_result.get('dependencies', []),
-                "notes": ai_result.get('notes', '')
-            }
-        else:
-            return {
-                "status": "failed",
-                "message": "AI model not available or implementation failed",
-                "fallback": "Use the guidance above for manual implementation"
-            }
-    
-    def process_standardized_ai_output(self, ai_result: Dict, operation_type: str) -> str:
-        """Process standardized AI output into readable format"""
-        
-        if operation_type == "TASK_ANALYSIS":
-            analysis_content = ai_result.get('analysis', ai_result.get('content', ''))
-            return f'''AI-POWERED TASK ANALYSIS:
-{'=' * 50}
-
-{analysis_content}
-
-CONFIDENCE: {ai_result.get('confidence', 'N/A')}
-COMPLEXITY: {ai_result.get('complexity', 'N/A')}
-ESTIMATED_TIME: {ai_result.get('estimated_time', 'N/A')}
-
-TECHNICAL RECOMMENDATIONS:
-{ai_result.get('recommendations', 'See analysis above')}'''
-        
-        return ai_result.get('content', 'AI analysis completed')
+        return agent.execute_task(task_input)

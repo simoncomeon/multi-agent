@@ -15,7 +15,7 @@ from .core.communication import AgentCommunication
 
 # Specialized agents
 from .agents import (
-    CodeReviewerAgent, FileManagerAgent, CodeGeneratorAgent,
+    CodeReviewerAgent, EnhancedFileManagerAgent, EnhancedCodeGeneratorAgent,
     CoordinatorAgent, GitManagerAgent, ResearchAgent, 
     TestingAgent, CodeRewriterAgent, HelperAgent
 )
@@ -29,7 +29,7 @@ __all__ = [
     'AgentRole', 'TaskStatus', 'Task', 'Colors', 'colored_print', 'AgentCommunication',
     
     # Specialized agents
-    'CodeReviewerAgent', 'FileManagerAgent', 'CodeGeneratorAgent',
+    'CodeReviewerAgent', 'EnhancedFileManagerAgent', 'EnhancedCodeGeneratorAgent',
     'CoordinatorAgent', 'GitManagerAgent', 'ResearchAgent',
     'TestingAgent', 'CodeRewriterAgent', 'HelperAgent',
     
