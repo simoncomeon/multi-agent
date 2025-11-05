@@ -7,70 +7,136 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from ..core.models import Colors
+from ..core.base_agent import BaseAgent, TaskInput, TaskResult
+from ..core.models import AgentRole, Colors
 from ..core.utils import colored_print, gather_file_context, gather_directory_context, gather_project_context
 
 
-class CodeReviewerAgent:
+class CodeReviewerAgent(BaseAgent):
     """Specialized agent for code quality review and analysis"""
     
-    def __init__(self, terminal_instance, comm_instance):
-        self.terminal = terminal_instance
-        self.comm = comm_instance
-        self.agent_id = "code_reviewer"
+    def __init__(self, agent_id: str, workspace_dir: str, **kwargs):
+        super().__init__(agent_id, AgentRole.REVIEWER, workspace_dir, **kwargs)
+        self.terminal = kwargs.get('terminal_instance')
     
-    def handle_code_review_task(self, task: Dict) -> Dict:
-        """Handle code review tasks and create structured review reports for code rewriter"""
-        
-        description = task["description"]
-        colored_print(f"INFO: CODE REVIEWER: Conducting comprehensive code review", Colors.BRIGHT_CYAN)
-        colored_print(f"   Task: {description}", Colors.CYAN)
-        
-        # Use universal AI collaboration for code review
-        review_result = self.conduct_comprehensive_code_review(description)
-        
-        # If issues found, automatically delegate to code rewriter
-        if review_result.get("issues_found", 0) > 0:
-            self.delegate_to_code_rewriter(review_result)
-        
+    def _define_capabilities(self) -> Dict[str, bool]:
+        """Define code reviewer capabilities"""
         return {
-            "status": "completed",
-            "review_report": review_result,
-            "message": f"Code review completed: {review_result.get('summary', 'Review finished')}"
+            'code_review': True,
+            'quality_analysis': True,
+            'security_analysis': True,
+            'performance_analysis': True,
+            'best_practices_check': True,
+            'context_aware_review': True,
+            'project_analysis': True
         }
+    
+    def _is_task_type_supported(self, task_type: str) -> bool:
+        """Check if task type is supported by code reviewer"""
+        supported_types = [
+            'code_review', 'quality_analysis', 'security_check',
+            'performance_review', 'project_analysis', 'contextual_review'
+        ]
+        return task_type in supported_types
+    
+    def _execute_specific_task(self, task_input: TaskInput, context: Dict) -> TaskResult:
+        """Execute code review task based on input type"""
+        if task_input.has_files():
+            return self._handle_file_review(task_input, context)
+        elif task_input.has_directories():
+            return self._handle_project_review(task_input, context)
+        else:
+            return self._handle_general_review(task_input, context)
+    
+    def _handle_file_review(self, task_input: TaskInput, context: Dict) -> TaskResult:
+        """Handle review of specific files"""
+        colored_print(f"Reviewing {len(task_input.files)} files", Colors.BRIGHT_CYAN)
+        
+        review_result = self.review_with_context(
+            [str(f) for f in task_input.files],
+            task_input.description,
+            []
+        )
+        
+        issues_found = review_result.get('issues_found', len(review_result.get('issues', [])))
+        
+        if issues_found > 0:
+            self._delegate_to_rewriter_if_needed(review_result)
+        
+        return TaskResult(
+            success=True,
+            message=f"Code review completed: {issues_found} issues found",
+            data=review_result,
+            metadata={'review_type': 'file_review', 'issues_count': issues_found}
+        )
+    
+    def _handle_project_review(self, task_input: TaskInput, context: Dict) -> TaskResult:
+        """Handle review of entire project/directory"""
+        colored_print(f"Reviewing project directories", Colors.BRIGHT_CYAN)
+        
+        project_dir = task_input.directories[0] if task_input.directories else self.workspace_dir
+        review_result = self.analyze_project_quality(str(project_dir))
+        
+        return TaskResult(
+            success=True,
+            message=f"Project analysis completed",
+            data=review_result,
+            metadata={'review_type': 'project_analysis'}
+        )
+    
+    def _handle_general_review(self, task_input: TaskInput, context: Dict) -> TaskResult:
+        """Handle general review request"""
+        colored_print(f"Conducting general code review", Colors.BRIGHT_CYAN)
+        
+        review_result = self.conduct_comprehensive_code_review(task_input.description)
+        
+        issues_found = review_result.get('issues_found', 0)
+        if issues_found > 0:
+            self._delegate_to_rewriter_if_needed(review_result)
+        
+        return TaskResult(
+            success=True,
+            message=f"Code review completed: {issues_found} issues found",
+            data=review_result,
+            metadata={'review_type': 'general_review', 'issues_count': issues_found}
+        )
+    
+    def _delegate_to_rewriter_if_needed(self, review_result: Dict):
+        """Delegate to code rewriter if issues found"""
+        if review_result.get('issues_found', 0) > 0:
+            self.delegate_to_code_rewriter(review_result)
+
     
     def conduct_comprehensive_code_review(self, description: str) -> Dict:
         """Conduct comprehensive code review using AI with project context"""
         
-        # Create standardized AI input for code review
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="CODE_REVIEW",
-            task_description=f"Comprehensive code review: {description}",
-            context_type="QUALITY_ANALYSIS",
-            requirements=[
-                "Analyze code quality and best practices",
-                "Identify bugs, security issues, and performance problems",
-                "Check for maintainability and readability issues",
-                "Verify proper error handling and edge cases",
-                "Assess architecture and design patterns"
-            ],
-            constraints=[
-                "Provide specific line numbers and file locations for issues",
-                "Categorize issues by severity (critical, major, minor)",
-                "Suggest specific fixes for each issue found",
-                "Include positive feedback for well-written code"
-            ],
-            expected_output="STRUCTURED_REVIEW_REPORT"
-        )
+        prompt_parts = [
+            "OPERATION: CODE_REVIEW",
+            f"TASK: {description}",
+            "",
+            "REQUIREMENTS:",
+            "- Analyze code quality and best practices",
+            "- Identify bugs, security issues, and performance problems",
+            "- Check for maintainability and readability issues",
+            "- Verify proper error handling and edge cases",
+            "- Assess architecture and design patterns",
+            "",
+            "CONSTRAINTS:",
+            "- Provide specific line numbers and file locations for issues",
+            "- Categorize issues by severity (CRITICAL, MAJOR, MINOR)",
+            "- Suggest specific fixes for each issue found",
+            "- Include positive feedback for well-written code",
+            "",
+            "OUTPUT: STRUCTURED_REVIEW_REPORT"
+        ]
         
-        # Execute AI-powered code review
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
+        prompt = "\n".join(prompt_parts)
+        ai_result = self.execute_ai_operation(prompt)
         
-        if ai_result.get('status') == 'success':
-            review_content = ai_result.get('implementation', '')
+        if ai_result.get('success'):
+            review_content = ai_result.get('response', '')
             return self.parse_review_report(review_content)
         else:
-            # Fallback review
             return self.conduct_basic_code_review(description)
     
     def parse_review_report(self, review_content: str) -> Dict:
@@ -117,22 +183,9 @@ class CodeReviewerAgent:
     def conduct_basic_code_review(self, description: str) -> Dict:
         """Fallback basic code review when AI unavailable"""
         
-        colored_print(f"   INFO: Conducting basic code review analysis", Colors.YELLOW)
+        colored_print(f"Conducting basic code review analysis", Colors.YELLOW)
         
-        # Basic file analysis
         issues = []
-        if hasattr(self.terminal, 'project_process_files') and self.terminal.project_process_files:
-            for file_path, file_info in self.terminal.project_process_files.items():
-                # Basic checks
-                content = file_info['content']
-                if 'TODO' in content or 'FIXME' in content:
-                    issues.append({
-                        "severity": "MINOR",
-                        "description": "Contains TODO or FIXME comments",
-                        "file": file_path,
-                        "line_number": 0,
-                        "suggested_fix": "Complete or remove TODO/FIXME items"
-                    })
         
         return {
             "issues_found": len(issues),
@@ -144,136 +197,127 @@ class CodeReviewerAgent:
     def review_with_context(self, target_files: List[str], description: str, context_paths: List[Union[str, Path]] = None) -> Dict:
         """Perform code review with full context awareness"""
         
-        colored_print(f"CODE REVIEWER: Context-aware code review", Colors.BRIGHT_BLUE)
-        colored_print(f"   FILES: {len(target_files)} files to review", Colors.WHITE)
+        colored_print(f"Context-aware code review of {len(target_files)} files", Colors.BRIGHT_BLUE)
         
-        # Gather context from target files
         context_data = {}
         
         for i, file_path in enumerate(target_files):
             if os.path.exists(file_path):
                 context_data[f"target_file_{i}"] = gather_file_context(file_path)
-                colored_print(f"     • {Path(file_path).name}", Colors.CYAN)
+                colored_print(f"  {Path(file_path).name}", Colors.CYAN)
             else:
-                colored_print(f"     • {Path(file_path).name} (NOT FOUND)", Colors.RED)
+                colored_print(f"  {Path(file_path).name} (NOT FOUND)", Colors.RED)
         
-        # Add reference context
         if context_paths:
-            colored_print(f"   CONTEXT: Additional context from {len(context_paths)} paths", Colors.CYAN)
+            colored_print(f"Additional context from {len(context_paths)} paths", Colors.CYAN)
             
             for path in context_paths:
                 path_obj = Path(path)
-                colored_print(f"     • {path_obj.name}", Colors.WHITE)
+                colored_print(f"  {path_obj.name}", Colors.WHITE)
                 
                 if path_obj.is_file():
                     context_data[f"reference_{path_obj.name}"] = gather_file_context(path_obj)
                 elif path_obj.is_dir():
                     context_data[f"reference_{path_obj.name}"] = gather_directory_context(path_obj)
         
-        # Add project context
-        if hasattr(self.terminal, 'current_project_process') and self.terminal.current_project_process:
-            project_path = os.path.join(self.terminal.workspace_dir, self.terminal.current_project_process)
-            if os.path.exists(project_path):
-                colored_print(f"   PROJECT: Adding project context: {self.terminal.current_project_process}", Colors.CYAN)
-                context_data["project"] = gather_project_context(project_path)
-        
-        # Format context for AI
         context_summary = self.format_context_for_ai(context_data)
         
-        # Enhanced AI operation for context-aware code review
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="CONTEXTUAL_CODE_REVIEW",
-            task_description=f"Review files with context: {description}\\nFiles: {', '.join(target_files)}",
-            context_type="FULL_PROJECT_REVIEW",
-            requirements=[
-                "Analyze code quality in context of the entire project",
-                "Identify issues that affect project architecture and consistency",
-                "Check for compatibility with existing codebase patterns",
-                "Assess integration points and dependencies",
-                "Verify adherence to project conventions and standards",
-                "Identify security issues and performance problems"
-            ],
-            constraints=[
-                "Provide specific file paths and line numbers for issues",
-                "Categorize issues by severity and impact on project",
-                "Consider existing project architecture and patterns",
-                "Suggest fixes that maintain project consistency",
-                "Focus on issues that truly impact code quality"
-            ],
-            expected_output="CONTEXTUAL_REVIEW_REPORT",
-            additional_context=context_summary
-        )
+        prompt_parts = [
+            "OPERATION: CONTEXTUAL_CODE_REVIEW",
+            f"TASK: Review files with context: {description}",
+            f"FILES: {', '.join(target_files)}",
+            "",
+            "CONTEXT:",
+            context_summary,
+            "",
+            "REQUIREMENTS:",
+            "- Analyze code quality in context of the entire project",
+            "- Identify issues that affect project architecture and consistency",
+            "- Check for compatibility with existing codebase patterns",
+            "- Assess integration points and dependencies",
+            "- Verify adherence to project conventions and standards",
+            "- Identify security issues and performance problems",
+            "",
+            "CONSTRAINTS:",
+            "- Provide specific file paths and line numbers for issues",
+            "- Categorize issues by severity and impact on project",
+            "- Consider existing project architecture and patterns",
+            "- Suggest fixes that maintain project consistency",
+            "- Focus on issues that truly impact code quality",
+            "",
+            "OUTPUT: CONTEXTUAL_REVIEW_REPORT"
+        ]
         
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
+        prompt = "\n".join(prompt_parts)
+        ai_result = self.execute_ai_operation(prompt)
         
-        if ai_result.get('status') == 'success':
-            return {
-                "type": "contextual_code_review",
-                "files_reviewed": target_files,
-                "context_used": len(context_data),
-                "issues": ai_result.get('issues', []),
-                "summary": ai_result.get('summary', 'Context-aware review completed'),
-                "recommendations": ai_result.get('recommendations', []),
-                "positive_feedback": ai_result.get('positive_feedback', []),
-                "timestamp": datetime.now().isoformat()
-            }
+        if ai_result.get('success'):
+            return self._parse_contextual_review(ai_result.get('response', ''), target_files, context_data)
         else:
-            # Fallback to basic review
-            return self.conduct_ai_powered_review(description)
+            return self.conduct_comprehensive_code_review(description)
+    
+    def _parse_contextual_review(self, response: str, target_files: List[str], context_data: Dict) -> Dict:
+        """Parse contextual review response"""
+        review = self.parse_review_report(response)
+        review.update({
+            "type": "contextual_code_review",
+            "files_reviewed": target_files,
+            "context_used": len(context_data)
+        })
+        return review
     
     def analyze_project_quality(self, project_path: str, focus_areas: List[str] = None) -> Dict:
         """Analyze overall project quality with context"""
         
-        colored_print(f"CODE REVIEWER: Project-wide quality analysis", Colors.BRIGHT_MAGENTA)
-        colored_print(f"   PROJECT: {Path(project_path).name}", Colors.WHITE)
+        colored_print(f"Project-wide quality analysis", Colors.BRIGHT_MAGENTA)
+        colored_print(f"  PROJECT: {Path(project_path).name}", Colors.WHITE)
         
-        # Gather comprehensive project context
         project_context = gather_project_context(project_path)
         
-        # Focus areas for analysis
         default_focus = ["architecture", "code_quality", "security", "performance", "maintainability"]
         focus = focus_areas if focus_areas else default_focus
         
-        colored_print(f"   FOCUS: {', '.join(focus)}", Colors.CYAN)
+        colored_print(f"  FOCUS: {', '.join(focus)}", Colors.CYAN)
         
-        # Enhanced AI operation for project analysis
-        standardized_input = self.terminal.create_standardized_ai_input(
-            operation_type="PROJECT_QUALITY_ANALYSIS",
-            task_description=f"Analyze overall quality of project: {Path(project_path).name}\\nFocus areas: {', '.join(focus)}",
-            context_type="COMPLETE_PROJECT_ANALYSIS",
-            requirements=[
-                "Analyze project architecture and organization",
-                "Assess code quality and consistency across files",
-                "Identify security vulnerabilities and risks",
-                "Evaluate performance characteristics",
-                "Check maintainability and scalability aspects",
-                "Review dependency management and structure"
-            ],
-            constraints=[
-                "Provide actionable recommendations for improvement",
-                "Prioritize issues by impact on project success",
-                "Consider project type and intended use case",
-                "Suggest specific implementation strategies",
-                "Focus on areas specified in focus_areas"
-            ],
-            expected_output="PROJECT_ANALYSIS_REPORT",
-            additional_context=self.format_project_context_for_ai(project_context)
-        )
+        prompt_parts = [
+            "OPERATION: PROJECT_QUALITY_ANALYSIS",
+            f"PROJECT: {Path(project_path).name}",
+            f"FOCUS AREAS: {', '.join(focus)}",
+            "",
+            "PROJECT CONTEXT:",
+            self.format_project_context_for_ai(project_context),
+            "",
+            "REQUIREMENTS:",
+            "- Analyze project architecture and organization",
+            "- Assess code quality and consistency across files",
+            "- Identify security vulnerabilities and risks",
+            "- Evaluate performance characteristics",
+            "- Check maintainability and scalability aspects",
+            "- Review dependency management and structure",
+            "",
+            "CONSTRAINTS:",
+            "- Provide actionable recommendations for improvement",
+            "- Prioritize issues by impact on project success",
+            "- Consider project type and intended use case",
+            "- Suggest specific implementation strategies",
+            "- Focus on areas specified in focus_areas",
+            "",
+            "OUTPUT: PROJECT_ANALYSIS_REPORT"
+        ]
         
-        ai_result = self.terminal.execute_standardized_ai_operation(standardized_input)
+        prompt = "\n".join(prompt_parts)
+        ai_result = self.execute_ai_operation(prompt)
         
+        return self._parse_project_analysis(ai_result.get('response', ''), project_path, focus)
+    
+    def _parse_project_analysis(self, response: str, project_path: str, focus: List[str]) -> Dict:
+        """Parse project analysis response"""
         return {
             "type": "project_quality_analysis",
             "project_path": project_path,
             "project_name": Path(project_path).name,
             "focus_areas": focus,
-            "overall_score": ai_result.get('overall_score', 'Not scored'),
-            "strengths": ai_result.get('strengths', []),
-            "weaknesses": ai_result.get('weaknesses', []),
-            "critical_issues": ai_result.get('critical_issues', []),
-            "recommendations": ai_result.get('recommendations', []),
-            "next_steps": ai_result.get('next_steps', []),
-            "summary": ai_result.get('summary', 'Project analysis completed'),
+            "analysis_content": response,
             "timestamp": datetime.now().isoformat()
         }
     
@@ -330,7 +374,6 @@ Type: {project_context.get('project_type', 'unknown')}
 Path: {project_context.get('project_path', 'unknown')}
 """]
         
-        # Package information
         package_info = project_context.get('package_info', {})
         if package_info:
             context_parts.append(f"""
@@ -340,11 +383,10 @@ Scripts: {', '.join(package_info.get('scripts', []))}
 Framework: {package_info.get('framework', 'none')}
 """)
         
-        # Key files content (limited)
         key_files = project_context.get('key_files', {})
         if key_files:
-            context_parts.append("\\nKEY FILES:")
-            for filename, file_data in list(key_files.items())[:5]:  # Limit to 5 files
+            context_parts.append("\nKEY FILES:")
+            for filename, file_data in list(key_files.items())[:5]:
                 if file_data.get('readable') and file_data.get('content'):
                     content = file_data['content'][:1000] + ('...' if len(file_data['content']) > 1000 else '')
                     context_parts.append(f"""
@@ -361,19 +403,16 @@ Framework: {package_info.get('framework', 'none')}
         if not issues:
             return
         
-        colored_print(f"   PROCESS: Delegating {len(issues)} issues to code rewriter", Colors.BRIGHT_YELLOW)
+        colored_print(f"Delegating {len(issues)} issues to code rewriter", Colors.BRIGHT_YELLOW)
         
-        # Create structured task for code rewriter
         rewriter_task_description = f"Fix {len(issues)} code issues from review report"
         
-        # Create detailed task with structured issue list
-        task_id = self.comm.create_task(
+        task_id = self.delegate_task(
+            task_description=rewriter_task_description,
+            target_agent_role="code_rewriter",
             task_type="code_rewrite_from_review",
-            description=rewriter_task_description,
-            assigned_to="code_rewriter",
-            created_by=self.agent_id,
             priority=1,
-            data={
+            task_data={
                 "review_report": review_result,
                 "total_issues": len(issues),
                 "critical_issues": len([i for i in issues if i.get("severity") == "CRITICAL"]),
@@ -383,4 +422,4 @@ Framework: {package_info.get('framework', 'none')}
             }
         )
         
-        colored_print(f"   SUCCESS: Created rewriter task {task_id} with {len(issues)} structured fixes", Colors.GREEN)
+        colored_print(f"Created rewriter task {task_id} with {len(issues)} structured fixes", Colors.GREEN)
