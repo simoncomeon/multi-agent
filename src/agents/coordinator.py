@@ -222,7 +222,7 @@ Respond ONLY with a JSON object in this format:
             assigned_to=target_agent,
             created_by=self.agent_id,
             priority=task_input.priority,
-            metadata={
+            data={
                 'analysis': analysis,
                 'context': task_input.get_all_inputs(),
                 'delegated_at': datetime.now().isoformat()
@@ -316,7 +316,7 @@ Respond ONLY with a JSON object in this format:
                     assigned_to=agent_role,
                     created_by=self.agent_id,
                     priority=step_num,
-                    metadata={
+                    data={
                         'workflow_id': workflow_id,
                         'step_number': step_num,
                         'total_steps': len(required_agents),
@@ -447,7 +447,7 @@ Respond ONLY with a JSON object in this format:
                 assigned_to=target_agent,
                 created_by=self.agent_id,
                 priority=1,
-                metadata={
+                data={
                     'delegation_method': 'direct',
                     'delegated_at': datetime.now().isoformat()
                 }
