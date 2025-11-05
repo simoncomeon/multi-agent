@@ -491,6 +491,19 @@ class MultiAgentTerminal:
         print()
         colored_print(f"Creating {description}: {project_name}", Colors.BRIGHT_GREEN)
         
+        # IMPORTANT: Set workspace to the new project directory
+        # This ensures the coordinator and all agents work in the correct location
+        project_path = os.path.join(self.workspace_dir, project_name)
+        
+        colored_print(f"Setting workspace to: {project_path}", Colors.CYAN)
+        self.workspace_dir = project_path
+        
+        # Create the project directory
+        os.makedirs(project_path, exist_ok=True)
+        
+        # Update communication system to use new workspace
+        self.comm = AgentCommunication(project_path)
+        
         # Check if file_manager exists, if not spawn it temporarily
         agents = self.comm.get_active_agents()
         file_manager_exists = any(agent['role'] == 'file_manager' for agent in agents)
@@ -513,7 +526,9 @@ class MultiAgentTerminal:
             data={'project_name': project_name, 'project_type': project_type, 'description': description}
         )
         
+        colored_print(f"SUCCESS: Project workspace set to {project_path}", Colors.BRIGHT_GREEN)
         colored_print(f"SUCCESS: Project creation task assigned to file manager (Task #{task_id})", Colors.BRIGHT_GREEN)
+        colored_print(f"TIP: Use 'workspace' to verify location", Colors.CYAN)
         colored_print(f"TIP: Use 'tasks' command to monitor progress", Colors.CYAN)
         
     def spawn_development_team(self):
@@ -3473,7 +3488,9 @@ def main():
                     if role == AgentRole.COORDINATOR:
                         colored_print("Coordinator Commands:", Colors.BRIGHT_CYAN)
                         print("  workspace - Show workspace information")
-                        print("  set_workspace <path> - Set workspace directory")
+                        print("  set_workspace <path|name> - Set workspace directory")
+                        print("      Note: Provide just a name to create under /workspace/")
+                        print("            or full path like ~/MyProjects/MyApp")
                         print("  stats - Show delegation statistics")
                         print("  workflows - Show active workflows")
                         print()
@@ -3488,8 +3505,28 @@ def main():
                 elif user_input.lower() == 'agents':
                     agents = agent.comm.get_active_agents()
                     colored_print(f"\nActive Agents ({len(agents)}):", Colors.BRIGHT_CYAN)
+                    colored_print("=" * 70, Colors.CYAN)
                     for a in agents:
-                        print(f"  {a['id']} ({a['role']}) - PID: {a.get('pid', 'unknown')}")
+                        status_color = Colors.GREEN if a.get('status') == 'active' else Colors.YELLOW
+                        role_str = f"{a['role']:20}"
+                        id_str = f"{a['id']:20}"
+                        pid_str = f"PID: {str(a.get('pid', 'N/A')):8}"
+                        status_str = f"Status: {a.get('status', 'unknown'):10}"
+                        
+                        print(f"{colored_text(role_str, Colors.BRIGHT_GREEN)} {colored_text(id_str, Colors.CYAN)} {colored_text(pid_str, status_color)} {colored_text(status_str, status_color)}")
+                        
+                        # Show last seen if available
+                        if 'last_seen' in a:
+                            print(f"    Last seen: {a['last_seen']}")
+                        if 'registered_at' in a:
+                            print(f"    Registered: {a['registered_at']}")
+                    
+                    # Also show total agent count from all agents (not just active)
+                    all_agents = agent.comm.load_agents()
+                    inactive_count = len([ag for ag in all_agents if ag.get('status') != 'active'])
+                    if inactive_count > 0:
+                        colored_print(f"\nInactive Agents: {inactive_count}", Colors.YELLOW)
+                        colored_print("TIP: Use 'cleanup' to remove inactive agents", Colors.CYAN)
                 elif user_input.lower() == 'tasks':
                     tasks = agent.comm.get_pending_tasks(agent_id)
                     colored_print(f"\nPending Tasks ({len(tasks)}):", Colors.BRIGHT_CYAN)
@@ -3548,12 +3585,23 @@ def main():
                     else:
                         colored_print(f"Workspace: {agent.workspace_dir}", Colors.CYAN)
                 elif user_input.lower().startswith('set_workspace '):
-                    # Set workspace directory
+                    # Set workspace directory - IMPORTANT: This changes the base workspace location
+                    # For project creation, projects will be created INSIDE this workspace
                     if role == AgentRole.COORDINATOR:
                         new_workspace = user_input[14:].strip()
-                        # Expand ~ to home directory
-                        new_workspace = os.path.expanduser(new_workspace)
-                        new_workspace = os.path.abspath(new_workspace)
+                        
+                        # IMPORTANT: If user provides just a project name (no path separators),
+                        # create it under the standard workspace directory
+                        if '/' not in new_workspace and '\\' not in new_workspace:
+                            # It's just a project name - create under standard workspace
+                            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            multi_agent_workspace = os.path.join(script_dir, 'workspace')
+                            new_workspace = os.path.join(multi_agent_workspace, new_workspace)
+                            colored_print(f"INFO: Creating project under standard workspace: {new_workspace}", Colors.CYAN)
+                        else:
+                            # Full path provided - expand and use as-is
+                            new_workspace = os.path.expanduser(new_workspace)
+                            new_workspace = os.path.abspath(new_workspace)
                         
                         try:
                             from src.agents import CoordinatorAgent

@@ -175,13 +175,13 @@ def monitor_agent_status(script_dir):
                 print(f"\nSTATUS: Agent Status Monitor:")
                 print("=" * 50)
                 for agent in agents:
-                    status_emoji = "[ACTIVE]" if agent.get("status") == "active" else "[INACTIVE]"
+                    status = "[ACTIVE]" if agent.get("status") == "active" else "[INACTIVE]"
                     pid = agent.get("pid", "unknown")
                     role = agent.get("role", "unknown")
                     agent_id = agent.get("id", "unknown")
                     last_seen = agent.get("last_seen", "unknown")
                     
-                    print(f"{status_emoji} {agent_id} ({role})")
+                    print(f"{status} {agent_id} ({role})")
                     print(f"   PID: {pid} | Last seen: {last_seen}")
                     
                 print("\nTIP: Agent Communication Commands:")

@@ -60,7 +60,7 @@ class AgentStatusMonitor:
         if agents:
             print(f"\nAGENTS: Active Agents ({len(agents)}):")
             for agent in agents:
-                status_emoji = "[ACTIVE]" if agent.get("status") == "active" else "[INACTIVE]"
+                status = "[ACTIVE]" if agent.get("status") == "active" else "[INACTIVE]"
                 pid = agent.get("pid", "unknown")
                 role = agent.get("role", "unknown")
                 agent_id = agent.get("id", "unknown")
@@ -79,7 +79,7 @@ class AgentStatusMonitor:
                 except:
                     time_str = "unknown"
                 
-                print(f"  {status_emoji} {agent_id:<15} ({role:<15}) PID: {pid:<8} Last: {time_str}")
+                print(f"  {status} {agent_id:<15} ({role:<15}) PID: {pid:<8} Last: {time_str}")
         else:
             print("\nERROR: No agents currently registered")
         
@@ -93,9 +93,9 @@ class AgentStatusMonitor:
                 assigned_to = task.get("assigned_to", "unknown")
                 description = task.get("description", "No description")[:50]
                 
-                status_emoji = {"pending": "WAITING:", "in_progress": "PROCESS:", "completed": "SUCCESS:", "failed": "ERROR:"}.get(status, "[UNKNOWN]")
+                status_label = {"pending": "WAITING:", "in_progress": "PROCESS:", "completed": "SUCCESS:", "failed": "ERROR:"}.get(status, "[UNKNOWN]")
                 
-                print(f"  {status_emoji} {task_id} → {assigned_to:<15} | {description}...")
+                print(f"  {status_label} {task_id} → {assigned_to:<15} | {description}...")
         else:
             print("\nINFO: No tasks in system")
         

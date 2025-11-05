@@ -54,16 +54,20 @@ You should see the coordinator interface with a prompt.
 
 ### Step 4: Set Up Your Workspace
 
-In the coordinator terminal, set your workspace directory:
+In the coordinator terminal, set your workspace to the project name:
 
 ```
-set_workspace /home/simon/Workspace/projects/mywatch
+set_workspace MyWatch
 ```
 
-Or use any directory where you want to create the project:
+**IMPORTANT:** By providing just the project name (no path separators), the system will automatically create it under the standard workspace directory:
+- Location: `/home/simon/Workspace/llm-project/python_tryout/multi-agent/workspace/MyWatch`
+- This keeps all projects organized in one place
 
+**Alternative - Custom Location:**
+If you need to create the project elsewhere, provide a full path:
 ```
-set_workspace ~/mywatch
+set_workspace ~/Projects/MyWatch
 ```
 
 The coordinator will create the directory if it doesn't exist.
