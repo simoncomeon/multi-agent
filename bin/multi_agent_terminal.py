@@ -3470,6 +3470,13 @@ def main():
                     print("  set_project <name> - Set focus to specific project process")
                     print("  files - Show project files loaded for AI collaboration")
                     print()
+                    if role == AgentRole.COORDINATOR:
+                        colored_print("Coordinator Commands:", Colors.BRIGHT_CYAN)
+                        print("  workspace - Show workspace information")
+                        print("  set_workspace <path> - Set workspace directory")
+                        print("  stats - Show delegation statistics")
+                        print("  workflows - Show active workflows")
+                        print()
                     colored_print("Agent Management Commands:", Colors.BRIGHT_YELLOW)
                     print("  kill <agent_name> - Kill and remove a faulty agent")
                     print("  restart <agent_name> - Restart a specific agent")
@@ -3527,6 +3534,78 @@ def main():
                         colored_print("Usage: spawn <role> <name>", Colors.RED)
                 elif user_input.lower() == 'cleanup':
                     agent.cleanup_inactive_agents()
+                # Coordinator-specific commands (when using refactored coordinator)
+                elif user_input.lower() == 'workspace':
+                    # Show workspace information
+                    if role == AgentRole.COORDINATOR:
+                        try:
+                            from src.agents import CoordinatorAgent
+                            coord = CoordinatorAgent(agent_id, agent.workspace_dir)
+                            coord.show_workspace_info()
+                        except Exception as e:
+                            colored_print(f"Workspace: {agent.workspace_dir}", Colors.CYAN)
+                            colored_print(f"Status: {'Exists' if os.path.exists(agent.workspace_dir) else 'Not found'}", Colors.WHITE)
+                    else:
+                        colored_print(f"Workspace: {agent.workspace_dir}", Colors.CYAN)
+                elif user_input.lower().startswith('set_workspace '):
+                    # Set workspace directory
+                    if role == AgentRole.COORDINATOR:
+                        new_workspace = user_input[14:].strip()
+                        # Expand ~ to home directory
+                        new_workspace = os.path.expanduser(new_workspace)
+                        new_workspace = os.path.abspath(new_workspace)
+                        
+                        try:
+                            from src.agents import CoordinatorAgent
+                            coord = CoordinatorAgent(agent_id, agent.workspace_dir)
+                            success = coord.set_workspace(new_workspace)
+                            if success:
+                                agent.workspace_dir = new_workspace
+                                agent.comm = AgentCommunication(new_workspace)
+                        except Exception as e:
+                            # Fallback implementation
+                            if not os.path.exists(new_workspace):
+                                os.makedirs(new_workspace, exist_ok=True)
+                                colored_print(f"Created workspace directory: {new_workspace}", Colors.GREEN)
+                            agent.workspace_dir = new_workspace
+                            agent.comm = AgentCommunication(new_workspace)
+                            colored_print(f"Workspace updated to: {new_workspace}", Colors.GREEN)
+                    else:
+                        colored_print("set_workspace command is only available for coordinator role", Colors.YELLOW)
+                elif user_input.lower() == 'stats':
+                    # Show delegation statistics (coordinator only)
+                    if role == AgentRole.COORDINATOR:
+                        try:
+                            from src.agents import CoordinatorAgent
+                            coord = CoordinatorAgent(agent_id, agent.workspace_dir)
+                            stats = coord.get_delegation_statistics()
+                            colored_print("\nDelegation Statistics:", Colors.BRIGHT_CYAN)
+                            colored_print(f"  Total delegations: {stats['total_delegations']}", Colors.WHITE)
+                            colored_print(f"  Successful: {stats['successful_delegations']}", Colors.GREEN)
+                            colored_print(f"  Success rate: {stats['success_rate']:.1%}", Colors.CYAN)
+                            colored_print(f"  Active workflows: {stats['active_workflows']}", Colors.YELLOW)
+                        except Exception as e:
+                            colored_print(f"Stats not available: {e}", Colors.YELLOW)
+                    else:
+                        colored_print("stats command is only available for coordinator role", Colors.YELLOW)
+                elif user_input.lower() == 'workflows':
+                    # Show active workflows (coordinator only)
+                    if role == AgentRole.COORDINATOR:
+                        try:
+                            from src.agents import CoordinatorAgent
+                            coord = CoordinatorAgent(agent_id, agent.workspace_dir)
+                            workflows = coord.list_active_workflows()
+                            if workflows:
+                                colored_print("\nActive Workflows:", Colors.BRIGHT_CYAN)
+                                for wf in workflows:
+                                    colored_print(f"  [{wf['workflow_id']}] {wf['original_task']}", Colors.CYAN)
+                                    colored_print(f"    Steps: {wf['total_steps']} | Status: {wf['status']}", Colors.WHITE)
+                            else:
+                                colored_print("No active workflows", Colors.YELLOW)
+                        except Exception as e:
+                            colored_print(f"Workflows not available: {e}", Colors.YELLOW)
+                    else:
+                        colored_print("workflows command is only available for coordinator role", Colors.YELLOW)
                 elif user_input.lower().startswith('delegate '):
                     # Parse delegation command: delegate "description" to agent_name
                     command_part = user_input[9:].strip()
