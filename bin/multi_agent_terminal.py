@@ -491,18 +491,17 @@ class MultiAgentTerminal:
         print()
         colored_print(f"Creating {description}: {project_name}", Colors.BRIGHT_GREEN)
         
-        # IMPORTANT: Set workspace to the new project directory
-        # This ensures the coordinator and all agents work in the correct location
+        # IMPORTANT: Create project as subdirectory but keep workspace at parent level
+        # This ensures all agents communicate through the same .agent_comm directory
         project_path = os.path.join(self.workspace_dir, project_name)
         
-        colored_print(f"Setting workspace to: {project_path}", Colors.CYAN)
-        self.workspace_dir = project_path
+        colored_print(f"Creating project at: {project_path}", Colors.CYAN)
         
         # Create the project directory
         os.makedirs(project_path, exist_ok=True)
         
-        # Update communication system to use new workspace
-        self.comm = AgentCommunication(project_path)
+        # Set this project as the active project process (but don't change workspace)
+        self.set_project_process(project_name)
         
         # Check if file_manager exists, if not spawn it temporarily
         agents = self.comm.get_active_agents()
@@ -526,9 +525,10 @@ class MultiAgentTerminal:
             data={'project_name': project_name, 'project_type': project_type, 'description': description}
         )
         
-        colored_print(f"SUCCESS: Project workspace set to {project_path}", Colors.BRIGHT_GREEN)
+        colored_print(f"SUCCESS: Project created at {project_path}", Colors.BRIGHT_GREEN)
+        colored_print(f"SUCCESS: Active project set to '{project_name}'", Colors.BRIGHT_GREEN)
         colored_print(f"SUCCESS: Project creation task assigned to file manager (Task #{task_id})", Colors.BRIGHT_GREEN)
-        colored_print(f"TIP: Use 'workspace' to verify location", Colors.CYAN)
+        colored_print(f"TIP: Use 'project' to see project details", Colors.CYAN)
         colored_print(f"TIP: Use 'tasks' command to monitor progress", Colors.CYAN)
         
     def spawn_development_team(self):
@@ -905,6 +905,9 @@ This task requires AI model collaboration for detailed implementation guidance."
         
         colored_print(f"\n[{self.agent_id}] Handling task {task_id}: {description}", Colors.YELLOW)
         
+        # IMPORTANT: Apply project context from coordinator before processing
+        self._apply_project_context(task)
+        
         # Update task status to in_progress
         self.comm.update_task_status(task_id, TaskStatus.IN_PROGRESS)
         
@@ -941,9 +944,63 @@ This task requires AI model collaboration for detailed implementation guidance."
             error_result = {"error": str(e), "type": "task_execution_error"}
             self.comm.update_task_status(task_id, TaskStatus.FAILED, error_result)
             colored_print(f"Task {task_id} failed: {e}", Colors.RED)
+        finally:
+            # Clear temporary workspace after task
+            self.temp_workspace = None
+            self.temp_project = None
+    
+    def _extract_project_context_from_task(self, task: Dict) -> tuple:
+        """
+        Extract project workspace context from task data.
+        Returns: (project_workspace_path, project_name) or (None, None)
+        """
+        task_data = task.get('data', {})
+        
+        if 'project_workspace' in task_data and 'project_name' in task_data:
+            project_workspace = task_data['project_workspace']
+            project_name = task_data['project_name']
+            colored_print(f"INFO: Using project context from coordinator - {project_name} at {project_workspace}", Colors.CYAN)
+            return project_workspace, project_name
+        
+        return None, None
+    
+    def _apply_project_context(self, task: Dict):
+        """
+        Apply project context from task to this agent's working directory.
+        This ensures agents work in the correct project directory.
+        """
+        project_workspace, project_name = self._extract_project_context_from_task(task)
+        
+        if project_workspace and project_name:
+            # Temporarily set workspace for this task
+            self.temp_workspace = project_workspace
+            self.temp_project = project_name
+            return True
+        
+        # No project context provided, use current workspace
+        self.temp_workspace = str(self.workspace_dir)
+        self.temp_project = None
+        return False
+    
+    def _get_working_directory(self) -> str:
+        """Get the current working directory for file operations"""
+        # Use temporary workspace if set (from task context)
+        if hasattr(self, 'temp_workspace') and self.temp_workspace:
+            return self.temp_workspace
+        
+        # Fall back to project process workspace if available
+        if hasattr(self, 'project_process_workspace') and self.project_process_workspace:
+            return str(self.project_process_workspace)
+        
+        # Default to base workspace
+        return str(self.workspace_dir)
     
     def handle_code_generation_task(self, task: Dict) -> Dict:
         """Handle code generation using AI-first approach with collaborative fallback"""
+        # Get the correct working directory from project context
+        working_dir = self._get_working_directory()
+        colored_print(f"CODE GENERATION: Operating in directory: {working_dir}", Colors.CYAN)
+        
         description = task["description"]
         
         # Try AI model first for actual implementation
@@ -1184,9 +1241,13 @@ Code:"""
     def handle_code_review_task(self, task: Dict) -> Dict:
         """Handle code review tasks and create structured review reports for code rewriter"""
         
+        # Get the correct working directory from project context
+        working_dir = self._get_working_directory()
+        
         description = task["description"]
         colored_print(f"INFO: CODE REVIEWER: Conducting comprehensive code review", Colors.BRIGHT_CYAN)
         colored_print(f"   Task: {description}", Colors.CYAN)
+        colored_print(f"   Working Directory: {working_dir}", Colors.CYAN)
         
         # Use universal AI collaboration for code review
         review_result = self.conduct_comprehensive_code_review(description)
@@ -1418,7 +1479,20 @@ Code:"""
         
         colored_print(f"   AUTO: Scanning workspace for existing projects...", Colors.CYAN)
         
-        # PRIORITY 1: Use current project if already set
+        # PRIORITY 1: Use project workspace from coordinator (task context)
+        working_dir = self._get_working_directory()
+        if working_dir != str(self.workspace_dir):
+            # We have a specific project workspace from the coordinator
+            project_name = os.path.basename(working_dir)
+            if os.path.exists(working_dir):
+                colored_print(f"   COORDINATOR: Using project workspace from coordinator - '{project_name}'", Colors.BRIGHT_GREEN)
+                return {
+                    "name": project_name,
+                    "path": working_dir,
+                    "source": "coordinator_context"
+                }
+        
+        # PRIORITY 2: Use current project if already set
         if hasattr(self, 'current_project_process') and self.current_project_process:
             current_path = os.path.join(self.workspace_dir, self.current_project_process)
             if os.path.exists(current_path):
@@ -1429,10 +1503,15 @@ Code:"""
                     "source": "current_project"
                 }
         
-        # PRIORITY 2: Look for project name in task data
+        # PRIORITY 3: Look for project name in task data
         if task_data and 'project_name' in task_data:
             project_name = task_data['project_name']
-            project_path = os.path.join(self.workspace_dir, project_name)
+            # Check if project_workspace is also provided (full path)
+            if 'project_workspace' in task_data:
+                project_path = task_data['project_workspace']
+            else:
+                project_path = os.path.join(self.workspace_dir, project_name)
+            
             if os.path.exists(project_path):
                 colored_print(f"   TASK_DATA: Found project '{project_name}' from task data", Colors.BRIGHT_GREEN)
                 return {
@@ -1441,7 +1520,7 @@ Code:"""
                     "source": "task_data"
                 }
         
-        # PRIORITY 3: Scan all existing projects in workspace
+        # PRIORITY 4: Scan all existing projects in workspace
         existing_projects = []
         if os.path.exists(self.workspace_dir):
             for item in os.listdir(self.workspace_dir):
@@ -3042,6 +3121,10 @@ export default {component_name};'''
     
     def handle_git_management_task(self, task: Dict) -> Dict:
         """Handle git management tasks"""
+        # Get the correct working directory from project context
+        working_dir = self._get_working_directory()
+        colored_print(f"GIT: Operating in directory: {working_dir}", Colors.CYAN)
+        
         return {"message": f"Git management task handled: {task['description']}"}
     
     def handle_research_task(self, task: Dict) -> Dict:
@@ -3055,9 +3138,13 @@ export default {component_name};'''
     def handle_code_rewriter_task(self, task: Dict) -> Dict:
         """Handle code rewriting tasks from code reviewer reports"""
         
+        # Get the correct working directory from project context
+        working_dir = self._get_working_directory()
+        
         description = task["description"]
         colored_print(f"CONFIG: CODE REWRITER: Processing code fixes", Colors.BRIGHT_CYAN)
         colored_print(f"   Task: {description}", Colors.CYAN)
+        colored_print(f"   Working Directory: {working_dir}", Colors.CYAN)
         
         # Check if this is from a code review report
         if task.get("task_type") == "code_rewrite_from_review":
@@ -3380,6 +3467,260 @@ export default {component_name};'''
                 for task in tasks[:3]:  # Show first 3 tasks
                     print(f"      • {task['id']}: {task['description'][:50]}...")
     
+    def show_all_agents_status(self):
+        """Show real-time status of all agents and their current activity"""
+        import time
+        
+        colored_print("\n" + "=" * 80, Colors.BRIGHT_CYAN)
+        colored_print("AGENT STATUS DASHBOARD", Colors.BRIGHT_CYAN)
+        colored_print("=" * 80, Colors.BRIGHT_CYAN)
+        
+        agents = self.comm.load_agents()
+        active_agents = [a for a in agents if a.get('status') == 'active']
+        inactive_agents = [a for a in agents if a.get('status') != 'active']
+        
+        # Summary
+        colored_print(f"\nTotal Agents: {len(agents)} | Active: {len(active_agents)} | Inactive: {len(inactive_agents)}", 
+                     Colors.WHITE)
+        
+        if not agents:
+            colored_print("\nNo agents registered.", Colors.YELLOW)
+            return
+        
+        # Show active agents with their current tasks
+        if active_agents:
+            colored_print("\n" + "─" * 80, Colors.CYAN)
+            colored_print("ACTIVE AGENTS:", Colors.BRIGHT_GREEN)
+            colored_print("─" * 80, Colors.CYAN)
+            
+            for agent_info in active_agents:
+                agent_id = agent_info['id']
+                agent_role = agent_info['role']
+                pid = agent_info.get('pid', 'N/A')
+                last_seen = agent_info.get('last_seen', 'unknown')
+                
+                # Check if process is running
+                process_status = "●"  # Running indicator
+                process_color = Colors.GREEN
+                if pid and pid != 'N/A':
+                    try:
+                        os.kill(pid, 0)
+                        process_status = "● RUNNING"
+                    except ProcessLookupError:
+                        process_status = "○ STOPPED"
+                        process_color = Colors.RED
+                    except PermissionError:
+                        process_status = "◐ UNKNOWN"
+                        process_color = Colors.YELLOW
+                
+                # Agent header
+                colored_print(f"\n{agent_role:20} [{agent_id}]", Colors.BRIGHT_GREEN)
+                print(f"  {colored_text(process_status, process_color):30} PID: {pid}")
+                print(f"  Last Activity: {last_seen}")
+                
+                # Show current tasks
+                tasks = self.comm.get_pending_tasks(agent_id)
+                all_tasks = self.comm.load_tasks()
+                
+                # Find tasks assigned to this agent (both pending and in-progress)
+                agent_tasks = [t for t in all_tasks if t.get('assigned_to') == agent_id]
+                in_progress = [t for t in agent_tasks if t.get('status') == 'in_progress']
+                pending = [t for t in agent_tasks if t.get('status') == 'pending']
+                completed_recent = [t for t in agent_tasks if t.get('status') == 'completed'][-3:]  # Last 3 completed
+                
+                if in_progress:
+                    colored_print(f"  📋 WORKING ON:", Colors.BRIGHT_YELLOW)
+                    for task in in_progress:
+                        desc = task.get('description', 'No description')
+                        if len(desc) > 60:
+                            desc = desc[:57] + "..."
+                        print(f"     ▸ {desc}")
+                        if 'started_at' in task:
+                            print(f"       Started: {task['started_at']}")
+                
+                if pending:
+                    colored_print(f"  📝 QUEUED ({len(pending)}):", Colors.CYAN)
+                    for task in pending[:2]:  # Show first 2 pending
+                        desc = task.get('description', 'No description')
+                        if len(desc) > 60:
+                            desc = desc[:57] + "..."
+                        print(f"     • {desc}")
+                    if len(pending) > 2:
+                        print(f"     ... and {len(pending) - 2} more")
+                
+                if completed_recent:
+                    colored_print(f"  ✓ RECENT COMPLETIONS:", Colors.GREEN)
+                    for task in completed_recent:
+                        desc = task.get('description', 'No description')
+                        if len(desc) > 50:
+                            desc = desc[:47] + "..."
+                        print(f"     ✓ {desc}")
+                
+                if not in_progress and not pending:
+                    colored_print(f"  💤 IDLE - No active tasks", Colors.WHITE)
+        
+        # Show inactive agents summary
+        if inactive_agents:
+            colored_print("\n" + "─" * 80, Colors.YELLOW)
+            colored_print(f"INACTIVE AGENTS ({len(inactive_agents)}):", Colors.YELLOW)
+            colored_print("─" * 80, Colors.YELLOW)
+            for agent_info in inactive_agents[:5]:  # Show first 5 inactive
+                print(f"  {agent_info['role']:20} [{agent_info['id']}] - {agent_info.get('status', 'unknown')}")
+            if len(inactive_agents) > 5:
+                print(f"  ... and {len(inactive_agents) - 5} more")
+            colored_print("  TIP: Use 'cleanup' to remove inactive agents", Colors.CYAN)
+        
+        colored_print("\n" + "=" * 80, Colors.BRIGHT_CYAN)
+        colored_print(f"Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S')}", Colors.WHITE)
+        colored_print("=" * 80 + "\n", Colors.BRIGHT_CYAN)
+    
+    def enrich_task_description(self, description: str, target_agent: str) -> Dict:
+        """
+        ENHANCED: Use AI to enrich task description with comprehensive context and best practices
+        
+        This method makes the delegate command intelligent by:
+        1. Analyzing the task requirements
+        2. Adding framework-specific context
+        3. Including tool/command suggestions (like npx, npm scripts)
+        4. Providing implementation guidance
+        5. Suggesting project structure
+        """
+        colored_print(f"\nAI: Analyzing and enriching task description...", Colors.CYAN)
+        
+        # Build comprehensive context for AI
+        context_info = []
+        if hasattr(self, 'current_project_process') and self.current_project_process:
+            context_info.append(f"Current Project: {self.current_project_process}")
+            context_info.append(f"Project Path: {self.project_process_workspace}")
+        
+        context_str = "\n".join(context_info) if context_info else "No active project"
+        
+        # Create intelligent prompt for AI
+        prompt = f"""You are assisting a multi-agent development system. Analyze this task and provide enhanced instructions.
+
+ORIGINAL TASK: {description}
+TARGET AGENT: {target_agent}
+CONTEXT: {context_str}
+
+Your job is to ENRICH this task description with comprehensive details so the {target_agent} agent can execute it perfectly.
+
+Analyze what the user wants and provide:
+
+1. **Enhanced Description**: A detailed, actionable description including:
+   - Exact steps to take
+   - Tools/commands to use (npx create-react-app, npm init, pip install, etc.)
+   - Framework best practices
+   - Project structure suggestions
+   - All necessary files and configurations
+
+2. **Implementation Guidance**: For example:
+   - For React projects: Use npx create-react-app or Vite, include package.json, src structure, components
+   - For Python projects: Include requirements.txt, proper module structure, virtual environment setup
+   - For Node projects: Include package.json, proper script definitions (start, dev, build, test)
+
+3. **Specific Requirements**: Break down into concrete tasks:
+   - Files to create
+   - Dependencies to include
+   - Configuration files needed
+   - Component/module structure
+
+Return your response in this JSON format:
+{{
+    "enhanced_description": "Comprehensive task description with all details, tools, commands, and best practices...",
+    "framework_detected": "react|vue|python|node|etc",
+    "suggested_tools": ["npx create-react-app", "npm install", "etc"],
+    "required_files": ["package.json", "src/App.js", "etc"],
+    "best_practices": ["Use functional components", "Include error handling", "etc"],
+    "task_data": {{
+        "framework": "detected_framework",
+        "use_tools": true,
+        "generate_complete_project": true,
+        "additional_context": "any extra info"
+    }}
+}}
+
+IMPORTANT: Make the enhanced_description extremely detailed and actionable. Include ALL necessary context for creating a complete, production-ready result.
+
+Return ONLY valid JSON, no markdown or explanations."""
+
+        # Try to get AI enhancement using the correct method
+        ai_result = self.try_ai_implementation(prompt)
+        
+        if ai_result.get('status') != 'success':
+            colored_print(f"AI: Enhancement unavailable, using original description", Colors.YELLOW)
+            return {
+                'enhanced_description': description,
+                'was_enhanced': False,
+                'task_data': {}
+            }
+        
+        # Parse AI response
+        try:
+            import re
+            import json
+            response = ai_result.get('implementation', '')
+            
+            # Clean up the response - remove control characters and fix common issues
+            # Remove control characters except newlines and tabs
+            response = ''.join(char for char in response if ord(char) >= 32 or char in '\n\t')
+            
+            # Extract JSON from response
+            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+            if json_match:
+                response = json_match.group(1)
+            else:
+                # Try to find JSON object boundaries more carefully
+                start = response.find('{')
+                if start != -1:
+                    # Count braces to find matching closing brace
+                    brace_count = 0
+                    end = start
+                    for i in range(start, len(response)):
+                        if response[i] == '{':
+                            brace_count += 1
+                        elif response[i] == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                end = i + 1
+                                break
+                    response = response[start:end]
+            
+            # Additional cleaning - escape unescaped quotes in strings if needed
+            enrichment = json.loads(response)
+            
+            colored_print(f"AI: Task enhanced successfully", Colors.GREEN)
+            if enrichment.get('framework_detected'):
+                colored_print(f"AI: Detected framework: {enrichment['framework_detected']}", Colors.CYAN)
+            if enrichment.get('suggested_tools'):
+                colored_print(f"AI: Suggested tools: {', '.join(enrichment['suggested_tools'][:3])}", Colors.CYAN)
+            
+            return {
+                'enhanced_description': enrichment.get('enhanced_description', description),
+                'was_enhanced': True,
+                'task_data': enrichment.get('task_data', {}),
+                'framework': enrichment.get('framework_detected'),
+                'tools': enrichment.get('suggested_tools', []),
+                'best_practices': enrichment.get('best_practices', [])
+            }
+            
+        except (json.JSONDecodeError, Exception) as e:
+            colored_print(f"AI: JSON parsing failed ({str(e)[:50]}), using enhanced text mode", Colors.YELLOW)
+            # Fallback: Use the raw response as enhanced description
+            # This way the file manager can still parse it as structured instructions
+            response = ai_result.get('implementation', '')
+            if response and len(response) > len(description):
+                colored_print(f"AI: Using enhanced text description (not JSON)", Colors.CYAN)
+                return {
+                    'enhanced_description': response,
+                    'was_enhanced': True,
+                    'task_data': {'format': 'text_instructions'},
+                }
+            return {
+                'enhanced_description': description,
+                'was_enhanced': False,
+                'task_data': {}
+            }
+    
     def spawn_new_agent(self, role: str, name: str):
         """Spawn a new agent with specified role and name"""
         colored_print(f"AGENT MANAGEMENT: Spawning new agent '{name}' with role '{role}'", Colors.BRIGHT_GREEN)
@@ -3488,16 +3829,17 @@ def main():
                     if role == AgentRole.COORDINATOR:
                         colored_print("Coordinator Commands:", Colors.BRIGHT_CYAN)
                         print("  workspace - Show workspace information")
-                        print("  set_workspace <path|name> - Set workspace directory")
-                        print("      Note: Provide just a name to create under /workspace/")
-                        print("            or full path like ~/MyProjects/MyApp")
+                        print("  set_workspace <path> - Set BASE workspace directory (for multi-project setups)")
+                        print("      WARNING: This changes the base workspace for ALL agents")
+                        print("      NOTE: For creating projects, use the guided wizard instead")
                         print("  stats - Show delegation statistics")
                         print("  workflows - Show active workflows")
                         print()
                     colored_print("Agent Management Commands:", Colors.BRIGHT_YELLOW)
                     print("  kill <agent_name> - Kill and remove a faulty agent")
                     print("  restart <agent_name> - Restart a specific agent")
-                    print("  status <agent_name> - Check status of specific agent")
+                    print("  status - Show real-time status dashboard for all agents")
+                    print("  status <agent_name> - Check detailed status of specific agent")
                     print("  spawn <role> <name> - Create new agent with role and name")
                     print("  cleanup - Remove all inactive agents")
                     print()
@@ -3558,6 +3900,9 @@ def main():
                 elif user_input.lower().startswith('restart '):
                     agent_name = user_input[8:].strip()
                     agent.restart_agent(agent_name)
+                elif user_input.lower() == 'status':
+                    # Show status of all agents (no specific agent name)
+                    agent.show_all_agents_status()
                 elif user_input.lower().startswith('status '):
                     agent_name = user_input[7:].strip()
                     agent.show_agent_status(agent_name)
@@ -3665,6 +4010,9 @@ def main():
                             description = parts[0].strip().strip('"')
                             target_agent = parts[1].strip()
                             
+                            # ENHANCED: Use AI to enrich the task description with context
+                            enriched_description = agent.enrich_task_description(description, target_agent)
+                            
                             # Map role names and agent names to actual role values for assignment
                             role_mapping = {
                                 'file_manager': 'file_manager',
@@ -3684,26 +4032,53 @@ def main():
                             
                             assigned_to = role_mapping.get(target_agent, target_agent)
                             
+                            # IMPORTANT: Include current project context in task data
+                            task_data = enriched_description.get('task_data', {})
+                            if hasattr(agent, 'current_project_process') and agent.current_project_process:
+                                task_data['project_name'] = agent.current_project_process
+                                task_data['project_workspace'] = str(agent.project_process_workspace)
+                                colored_print(f"Including project context: {agent.current_project_process}", Colors.CYAN)
+                            
+                            # Use enriched description if AI enhancement succeeded
+                            final_description = enriched_description.get('enhanced_description', description)
+                            
                             task_id = agent.comm.create_task(
                                 task_type="general",
-                                description=description,
+                                description=final_description,
                                 assigned_to=assigned_to,
-                                created_by=agent_id
+                                created_by=agent_id,
+                                data=task_data
                             )
                             colored_print(f"Task {task_id} created and delegated to {target_agent}!", Colors.GREEN)
+                            if enriched_description.get('was_enhanced'):
+                                colored_print(f"AI: Task description enhanced with best practices", Colors.CYAN)
                         else:
                             colored_print("Invalid format. Use: delegate \"description\" to agent_name", Colors.RED)
                     else:
                         # Old format: just delegate description (default to coder)
                         description = command_part
                         if description:
+                            # Enrich description for coder
+                            enriched_description = agent.enrich_task_description(description, 'coder')
+                            
+                            # Include project context
+                            task_data = enriched_description.get('task_data', {})
+                            if hasattr(agent, 'current_project_process') and agent.current_project_process:
+                                task_data['project_name'] = agent.current_project_process
+                                task_data['project_workspace'] = str(agent.project_process_workspace)
+                            
+                            final_description = enriched_description.get('enhanced_description', description)
+                            
                             task_id = agent.comm.create_task(
                                 task_type="general",
-                                description=description,
+                                description=final_description,
                                 assigned_to="coder",  # Default to coder
-                                created_by=agent_id
+                                created_by=agent_id,
+                                data=task_data
                             )
                             colored_print(f"Task {task_id} created and delegated to coder!", Colors.GREEN)
+                            if enriched_description.get('was_enhanced'):
+                                colored_print(f"AI: Task description enhanced with best practices", Colors.CYAN)
                         else:
                             colored_print("Please provide a task description", Colors.RED)
                 else:
