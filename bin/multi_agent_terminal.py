@@ -314,7 +314,15 @@ class MultiAgentTerminal:
         self.running = True
         self.task_thread = threading.Thread(target=self.monitor_tasks, daemon=True)
         self.task_thread.start()
-        
+
+        # Background job monitoring for heavy scaffold commands
+        # - self.bg_jobs: list of dicts {pid, command, log, project_dir, predicted_app_dir, start_time}
+        # - self.deferred_cmds: map of project_dir -> [commands]
+        self.bg_jobs = []
+        self.deferred_cmds = {}
+        self.bg_monitor_thread = threading.Thread(target=self.monitor_background_jobs, daemon=True)
+        self.bg_monitor_thread.start()
+
         # Check if this is a coordinator starting in guided mode
         self.guided_mode = self.check_guided_mode()
     
@@ -503,9 +511,10 @@ class MultiAgentTerminal:
         # Set this project as the active project process (but don't change workspace)
         self.set_project_process(project_name)
         
-        # Check if file_manager exists, if not spawn it temporarily
+        # Ensure core agents exist (file manager and coder)
         agents = self.comm.get_active_agents()
         file_manager_exists = any(agent['role'] == 'file_manager' for agent in agents)
+        coder_exists = any(agent['role'] == 'coder' for agent in agents)
         
         if not file_manager_exists:
             colored_print("Spawning file manager agent...", Colors.CYAN)
@@ -513,23 +522,146 @@ class MultiAgentTerminal:
             # Give it a moment to register
             import time
             time.sleep(2)
+        if not coder_exists:
+            colored_print("Spawning coder agent...", Colors.CYAN)
+            self.spawn_single_agent('coder', 'dev')
+            import time
+            time.sleep(2)
         
-        # Create task for file manager
-        task_description = f"Create {project_type} project '{project_name}' - {description}"
-        task_id = self.comm.create_task(
-            task_type='project_creation',
-            description=task_description,
-            assigned_to='files',  # file manager agent
-            created_by=self.agent_id,
-            priority=1,
-            data={'project_name': project_name, 'project_type': project_type, 'description': description}
+        # Build a high-level request and let coordinator (this agent) enrich and split into sub-tasks
+        base_request = f"Create {project_type} project '{project_name}' - {description}"
+        delegated = self.split_and_delegate_enriched_task(
+            base_request,
+            project_name,
+            project_path
         )
         
         colored_print(f"SUCCESS: Project created at {project_path}", Colors.BRIGHT_GREEN)
         colored_print(f"SUCCESS: Active project set to '{project_name}'", Colors.BRIGHT_GREEN)
-        colored_print(f"SUCCESS: Project creation task assigned to file manager (Task #{task_id})", Colors.BRIGHT_GREEN)
+        colored_print(f"SUCCESS: Delegated {len(delegated)} task(s) from enriched plan", Colors.BRIGHT_GREEN)
         colored_print(f"TIP: Use 'project' to see project details", Colors.CYAN)
         colored_print(f"TIP: Use 'tasks' command to monitor progress", Colors.CYAN)
+
+    def split_and_delegate_enriched_task(self, description: str, project_name: Optional[str] = None, project_path: Optional[str] = None) -> list:
+        """Enrich a high-level description, parse structured plan, and delegate to proper agents."""
+        # Enrich with AI first
+        enriched = self.enrich_task_description(description, 'file_manager')
+
+        # Ensure project context
+        if not project_name and hasattr(self, 'current_project_process') and self.current_project_process:
+            project_name = self.current_project_process
+        if not project_path and hasattr(self, 'project_process_workspace') and self.project_process_workspace:
+            project_path = self.project_process_workspace
+
+        task_ids = []
+        task_data_base = {
+            'project_name': project_name,
+            'project_workspace': project_path
+        }
+
+        # Build a structured payload for file manager
+        fm_payload = {
+            'steps': [],
+            'tools': enriched.get('tools', []),
+            'best_practices': {bp: True for bp in (enriched.get('best_practices') or [])},
+            'project_structure': {},
+            'files': enriched.get('required_files', [])
+        }
+
+        # If AI returned only enhanced text, try to extract commands/files heuristically
+        if (not fm_payload['tools'] or not fm_payload['files']) and enriched.get('was_enhanced'):
+            enhanced_text = enriched.get('enhanced_description') or ''
+            if isinstance(enhanced_text, str) and enhanced_text:
+                extracted = self._extract_plan_from_text(enhanced_text)
+                if extracted.get('tools'):
+                    fm_payload['tools'] = list({*fm_payload['tools'], *extracted['tools']})
+                if extracted.get('files'):
+                    fm_payload['files'] = list({*fm_payload['files'], *extracted['files']})
+                if extracted.get('steps'):
+                    fm_payload['steps'].extend(extracted['steps'])
+
+        # Heuristic steps from tools and context
+        if project_path:
+            fm_payload['steps'].append(f"Open terminal and navigate to {project_path}")
+        for tool in fm_payload['tools']:
+            t = tool.lower()
+            if 'create-react-app' in t:
+                fm_payload['steps'].append(f"Run npx create-react-app {project_name.lower().replace(' ', '-')}")
+            elif t.startswith('npm '):
+                fm_payload['steps'].append(tool)
+            elif t.startswith('pip'):
+                fm_payload['steps'].append(tool)
+
+        # Prefer sending structured dict to file manager to avoid dumping raw text
+        fm_task_id = self.comm.create_task(
+            task_type='file_management',
+            description=fm_payload,  # structured dict; file_manager can handle it
+            assigned_to='files',
+            created_by=self.agent_id,
+            priority=1,
+            data={**task_data_base, 'execute_commands': True}
+        )
+        task_ids.append(fm_task_id)
+
+        # Create a coder task to implement core files if any were listed
+        req_files = enriched.get('required_files') or []
+        if req_files:
+            code_desc = f"Implement core files and components for project '{project_name}': {', '.join(req_files[:6])}"
+            coder_task_id = self.comm.create_task(
+                task_type='code_generation',
+                description=code_desc,
+                assigned_to='dev',
+                created_by=self.agent_id,
+                priority=1,
+                data=task_data_base.copy()
+            )
+            task_ids.append(coder_task_id)
+
+        return task_ids
+
+    def _extract_plan_from_text(self, text: str) -> Dict[str, list]:
+        """Extract a minimal plan from free-form AI text: commands, files, steps."""
+        import re
+        steps, tools, files = [], [], []
+
+        # Commands: lines starting with $, Run ..., or starting with known tools
+        for line in text.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith('$'):
+                s = s[1:].strip()
+            if s.lower().startswith('run '):
+                s = s[4:].strip()
+            if re.match(r'^(npx|npm|yarn|pnpm|pip3?|python3? -m pip)\b', s, re.I):
+                tools.append(s)
+                steps.append(f"Run {s}")
+
+        # Files: look for path-like tokens with common extensions
+        path_pattern = re.compile(r"(?:^|\s)([\w./-]+\.(?:js|jsx|ts|tsx|json|html|css|md|py))\b")
+        for m in path_pattern.finditer(text):
+            files.append(m.group(1))
+
+        # Also include common config files mentioned
+        for key in ["package.json", "requirements.txt", "pyproject.toml", "vite.config.ts", "vite.config.js", "public/index.html", "src/index.js", "src/App.js"]:
+            if key in text and key not in files:
+                files.append(key)
+
+        # De-duplicate while preserving order
+        def dedupe(seq):
+            seen = set()
+            out = []
+            for x in seq:
+                if x not in seen:
+                    out.append(x)
+                    seen.add(x)
+            return out
+
+        return {
+            'steps': dedupe(steps),
+            'tools': dedupe(tools),
+            'files': dedupe(files)
+        }
         
     def spawn_development_team(self):
         """Spawn a complete AI development team"""
@@ -1409,6 +1541,10 @@ Code:"""
         colored_print(f"FOLDER: FILE MANAGER: Processing file management task", Colors.BRIGHT_CYAN)
         colored_print(f"   Task: {description}", Colors.CYAN)
         
+        # NEW: If description is a structured dict plan, handle it directly
+        if isinstance(description, dict):
+            return self.handle_structured_file_plan(task)
+        
         # Check if this is an edit task or create task
         if self.is_edit_task(description):
             return self.handle_file_edit_task(description)
@@ -1418,6 +1554,8 @@ Code:"""
     def is_edit_task(self, description: str) -> bool:
         """Determine if this is an edit task or create task"""
         edit_keywords = ["edit", "modify", "update", "change", "add to", "enhance", "improve"]
+        if not isinstance(description, str):
+            return False
         desc_lower = description.lower()
         return any(keyword in desc_lower for keyword in edit_keywords)
     
@@ -1600,7 +1738,7 @@ Code:"""
         import os
         
         suitability = 0.0
-        desc_lower = task_description.lower()
+        desc_lower = task_description.lower() if isinstance(task_description, str) else ""
         project_name = os.path.basename(project_path).lower()
         
         # Name matching
@@ -1644,7 +1782,7 @@ Code:"""
         """Analyze what component needs to be created"""
         import os
         
-        desc_lower = description.lower()
+        desc_lower = description.lower() if isinstance(description, str) else ""
         component_info = {
             "name": "UnknownComponent",
             "type": "generic",
@@ -1747,332 +1885,434 @@ Code:"""
         return context
     
     def execute_ai_component_creation(self, project_path: str, component_info: Dict, ai_result: Dict) -> list:
-        """Execute component creation based on AI analysis"""
+        """Create component files by parsing AI output only (no hard-coded templates)."""
         import os
-        
         files_created = []
-        
+
         try:
-            # Parse AI output for file creation instructions
-            implementation = ai_result.get('implementation', '')
-            
-            # This would normally parse the AI output to extract file paths and content
-            # For now, create a basic component file
-            
-            target_dir = os.path.join(project_path, component_info['target_dir'])
-            os.makedirs(target_dir, exist_ok=True)
-            
-            # Determine file extension based on project
-            project_info = self.analyze_existing_project_structure(project_path)
-            
-            if project_info and project_info.get('framework') == 'react':
-                file_extension = '.jsx'
-            elif project_info and project_info.get('framework') == 'vue':
-                file_extension = '.vue'
+            implementation = ai_result.get('implementation', '') if isinstance(ai_result, dict) else ''
+
+            # 1) Try to parse files directly from the provided AI implementation
+            files_payload = self._parse_ai_files_payload(implementation)
+
+            # 2) If nothing parsed, request a STRICT JSON files payload from AI
+            if not files_payload:
+                project_context = self.get_project_structure_context(project_path)
+                strict_input = self.create_standardized_ai_input(
+                    operation_type="COMPONENT_CREATION_FILES",
+                    task_description=(
+                        f"Generate all necessary files to add component {component_info.get('name')} "
+                        f"(type: {component_info.get('type')}) with features: "
+                        f"{', '.join(component_info.get('features', []))}."
+                    ),
+                    context_type="EXISTING_PROJECT_ENHANCEMENT",
+                    requirements=[
+                        "Return STRICT JSON only",
+                        "JSON schema: {\"files\":[{\"path\":string,\"content\":string}]}",
+                        f"Place files under {component_info.get('target_dir', 'src/components')} if appropriate",
+                        "Use project conventions from context (framework, structure, imports)",
+                    ],
+                    constraints=[
+                        "No explanations, no markdown, no backticks",
+                        "Absolute or project-relative POSIX paths only",
+                        "Ensure content compiles in the detected framework",
+                    ],
+                    expected_output="STRICT_JSON_FILES",
+                    project_context=project_context
+                )
+
+                strict_result = self.execute_standardized_ai_operation(strict_input)
+                strict_impl = strict_result.get('implementation', '') if isinstance(strict_result, dict) else ''
+                files_payload = self._parse_ai_files_payload(strict_impl)
+
+            # 3) Write files to disk
+            if files_payload:
+                for f in files_payload:
+                    rel_path = f.get('path')
+                    content = f.get('content', '')
+                    if not rel_path or not isinstance(rel_path, str):
+                        continue
+                    fpath = os.path.join(project_path, rel_path)
+                    os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                    with open(fpath, 'w', encoding='utf-8') as out:
+                        out.write(content)
+                    files_created.append(fpath)
+                    colored_print(f"      Created: {os.path.relpath(fpath, project_path)}", Colors.GREEN)
             else:
-                file_extension = '.js'
-            
-            # Create the component file
-            component_file = os.path.join(target_dir, f"{component_info['name']}{file_extension}")
-            
-            # Generate component content using AI result
-            component_content = self.generate_component_content(component_info, ai_result, file_extension)
-            
-            with open(component_file, 'w') as f:
-                f.write(component_content)
-            
-            files_created.append(component_file)
-            colored_print(f"      Created: {os.path.relpath(component_file, project_path)}", Colors.GREEN)
-            
+                colored_print("   WARNING: AI did not return a parsable files payload. No files created.", Colors.YELLOW)
+
         except Exception as e:
-            colored_print(f"   ERROR: Failed to create AI component: {e}", Colors.RED)
-            files_created = self.create_fallback_component(project_path, component_info)
-        
+            colored_print(f"   ERROR: Failed to create AI component from parsed output: {e}", Colors.RED)
+
         return files_created
     
-    def create_fallback_component(self, project_path: str, component_info: Dict) -> list:
-        """Create a basic fallback component if AI fails"""
-        import os
+    # NOTE: Removed fallback hard-coded component generation. AI-only path is used.
+    
+    # NOTE: Removed hard-coded JSX feature generation.
+
+    # NEW: Structured file plan handler for file_manager
+    def handle_structured_file_plan(self, task: Dict) -> Dict:
+        """Handle a structured file plan dict with steps/tools/project_structure/files."""
+        plan = task.get('description', {})
+        data = task.get('data', {})
         
-        files_created = []
+        # Determine project directory
+        project_dir = None
+        if 'project_workspace' in data and data['project_workspace']:
+            project_dir = data['project_workspace']
+        elif hasattr(self, 'project_process_workspace') and self.project_process_workspace:
+            project_dir = self.project_process_workspace
+        else:
+            # Fallback to base workspace + project name
+            pname = data.get('project_name') or 'NewProject'
+            project_dir = os.path.join(self.workspace_dir, pname)
         
+        os.makedirs(project_dir, exist_ok=True)
+        colored_print(f"   Target: {project_dir}", Colors.CYAN)
+        
+        created_files = []
+        created_dirs = []
+        
+        # Create directory structure
+        struct = plan.get('project_structure')
+        if isinstance(struct, dict):
+            def create_tree(base_path, tree):
+                for name, subtree in tree.items():
+                    dir_path = os.path.join(base_path, name)
+                    os.makedirs(dir_path, exist_ok=True)
+                    created_dirs.append(dir_path)
+                    if isinstance(subtree, dict):
+                        create_tree(dir_path, subtree)
+            create_tree(project_dir, struct)
+        
+        # Create listed files using AI-only content generation (no hard-coded templates)
+        files = plan.get('files') or []
+        project_info_for_ai = {"name": data.get('project_name') or os.path.basename(project_dir)}
+        project_struct_context = self.get_project_structure_context(project_dir)
+        for rel in files:
+            if not isinstance(rel, str):
+                continue
+            fpath = os.path.join(project_dir, rel)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            # Ask AI for file content using universal generator
+            content = self.generate_universal_file_content(rel, "", project_info_for_ai)
+            with open(fpath, 'w', encoding='utf-8') as f:
+                if content:
+                    f.write(content)
+            created_files.append(fpath)
+            colored_print(f"      Created: {os.path.relpath(fpath, project_dir)}", Colors.GREEN)
+        
+        # Show suggested commands
+        steps = plan.get('steps') or []
+        commands = []
+        for step in steps:
+            if not isinstance(step, str):
+                continue
+            s = step.strip()
+            if s.startswith('$'):
+                s = s[1:].strip()
+            if s.lower().startswith('run '):
+                s = s[4:].strip()
+            if any(s.lower().startswith(prefix) for prefix in ['npx ', 'npm ', 'yarn ', 'pnpm ', 'pip ', 'pip3 '] ):
+                commands.append(s)
+        
+        executed = []
+        exec_errors = []
+        
+        if commands:
+            colored_print("\n   COMMANDS TO RUN:", Colors.BRIGHT_YELLOW)
+            for cmd in commands:
+                colored_print(f"      $ {cmd}", Colors.YELLOW)
+            
+            # Execute safe commands automatically in project_dir
+            auto_execute = True if data.get('execute_commands', True) else False
+            if auto_execute:
+                import subprocess, shlex, time
+                colored_print("\n   EXECUTING SAFE COMMANDS...", Colors.BRIGHT_YELLOW)
+                whitelist_prefixes = ['npx create-react-app', 'npm install', 'npm init', 'pnpm install', 'yarn install', 'pip install', 'pip3 install']
+                heavy_prefixes = ['npx create-react-app', 'npx create-next-app', 'npm create vite@latest', 'yarn create react-app', 'pnpm create vite']
+                backgrounded = []
+                deferred = []
+                created_app_dir = None
+
+                # Utility to parse app dir from heavy scaffolding command (best-effort)
+                def _parse_app_dir_from_cmd(c: str) -> str:
+                    parts = shlex.split(c)
+                    # look for last non-option token
+                    name = None
+                    for tok in reversed(parts):
+                        if not tok.startswith('-') and tok not in ['--template', '--use-npm', '--use-pnpm', '--typescript']:
+                            name = tok
+                            break
+                    if name and name not in ['npx', 'create-react-app', 'create-next-app', 'npm', 'create', 'vite@latest', 'yarn', 'pnpm']:
+                        return os.path.join(project_dir, name)
+                    return None
+
+                # Ensure log directory exists
+                log_dir = os.path.join(project_dir, '.agent_logs')
+                os.makedirs(log_dir, exist_ok=True)
+
+                for cmd in commands:
+                    safe = any(cmd.lower().startswith(p) for p in whitelist_prefixes)
+                    if not safe:
+                        colored_print(f"      SKIP (not whitelisted): {cmd}", Colors.YELLOW)
+                        continue
+
+                    is_heavy = any(cmd.lower().startswith(p) for p in heavy_prefixes)
+
+                    # If we started a heavy scaffolding and app dir not yet present, defer dependent installs
+                    if not is_heavy and created_app_dir and not os.path.exists(created_app_dir):
+                        colored_print(f"      DEFER: {cmd} (waiting for scaffolding to complete)", Colors.YELLOW)
+                        deferred.append(cmd)
+                        continue
+
+                    try:
+                        if is_heavy:
+                            # Run in background with logging
+                            ts = time.strftime('%Y%m%d_%H%M%S')
+                            log_file = os.path.join(log_dir, f"scaffold_{ts}.log")
+                            colored_print(f"      RUN (bg): {cmd}", Colors.CYAN)
+                            with open(log_file, 'w') as lf:
+                                proc = subprocess.Popen(shlex.split(cmd), cwd=project_dir, stdout=lf, stderr=lf)
+                            backgrounded.append({"command": cmd, "pid": proc.pid, "log": log_file})
+                            executed.append(f"{cmd} [bg pid={proc.pid}]")
+                            # Predict app dir to adjust subsequent npm install cwd when ready
+                            predicted = _parse_app_dir_from_cmd(cmd)
+                            if predicted:
+                                created_app_dir = predicted
+                            # Register background job for monitoring
+                            try:
+                                self.bg_jobs.append({
+                                    "pid": proc.pid,
+                                    "command": cmd,
+                                    "log": log_file,
+                                    "project_dir": project_dir,
+                                    "predicted_app_dir": created_app_dir,
+                                    "start_time": time.time()
+                                })
+                                colored_print(f"         MONITOR: Registered bg job PID {proc.pid}", Colors.BLUE)
+                            except Exception as e:
+                                colored_print(f"         WARN: Could not register bg job: {e}", Colors.YELLOW)
+                        else:
+                            # Determine correct cwd (inside app dir if present with package.json)
+                            run_cwd = project_dir
+                            if created_app_dir and os.path.exists(created_app_dir) and os.path.exists(os.path.join(created_app_dir, 'package.json')):
+                                run_cwd = created_app_dir
+                            elif cmd.lower().startswith('npm install') and not os.path.exists(os.path.join(project_dir, 'package.json')):
+                                colored_print(f"         SKIP: {cmd} (no package.json found; likely waiting for scaffolding)", Colors.YELLOW)
+                                deferred.append(cmd)
+                                continue
+
+                            colored_print(f"      RUN: {cmd}", Colors.CYAN)
+                            result = subprocess.run(shlex.split(cmd), cwd=run_cwd, capture_output=True, text=True)
+                            if result.returncode == 0:
+                                executed.append(cmd)
+                                out = (result.stdout or '').strip()
+                                if out:
+                                    colored_print(f"         OK: {cmd} (output truncated)", Colors.GREEN)
+                            else:
+                                err = (result.stderr or '').strip()
+                                colored_print(f"         ERROR: {cmd} -> {result.returncode}", Colors.RED)
+                                if err:
+                                    colored_print(f"         STDERR: {err[:300]}", Colors.RED)
+                                exec_errors.append({"command": cmd, "code": result.returncode, "stderr": err})
+                    except FileNotFoundError as e:
+                        colored_print(f"         NOT FOUND: {cmd.split()[0]} (install required)", Colors.RED)
+                        exec_errors.append({"command": cmd, "error": str(e)})
+                    except Exception as e:
+                        colored_print(f"         FAILED: {cmd} ({e})", Colors.RED)
+                        exec_errors.append({"command": cmd, "error": str(e)})
+
+                # Persist deferred commands for background watcher
+                if deferred:
+                    try:
+                        existing = self.deferred_cmds.get(project_dir, [])
+                        # maintain order; append new deferred
+                        self.deferred_cmds[project_dir] = existing + deferred
+                        colored_print(f"      QUEUED: {len(deferred)} deferred command(s) for monitoring", Colors.BLUE)
+                    except Exception as e:
+                        colored_print(f"      WARN: Could not queue deferred commands: {e}", Colors.YELLOW)
+
+        # Attach extra execution metadata
         try:
-            target_dir = os.path.join(project_path, component_info['target_dir'])
-            os.makedirs(target_dir, exist_ok=True)
-            
-            # Create basic React component
-            component_file = os.path.join(target_dir, f"{component_info['name']}.jsx")
-            
-            component_content = f"""import React from 'react';
-
-const {component_info['name']} = () => {{
-    return (
-        <div className="{component_info['name'].lower()}-component">
-            <h3>{component_info['name']}</h3>
-            <p>Component created by File Manager</p>
-            {self.generate_feature_elements(component_info['features'])}
-        </div>
-    );
-}};
-
-export default {component_info['name']};
-"""
-            
-            with open(component_file, 'w') as f:
-                f.write(component_content)
-            
-            files_created.append(component_file)
-            colored_print(f"      Created: {os.path.relpath(component_file, project_path)}", Colors.GREEN)
-            
-        except Exception as e:
-            colored_print(f"   ERROR: Failed to create fallback component: {e}", Colors.RED)
+            backgrounded
+        except NameError:
+            backgrounded = []
+        try:
+            deferred
+        except NameError:
+            deferred = []
         
-        return files_created
-    
-    def generate_feature_elements(self, features: list) -> str:
-        """Generate JSX elements based on component features"""
-        elements = ""
-        
-        if "time_display" in features:
-            elements += "\n            <div className='time-display'>{new Date().toLocaleTimeString()}</div>"
-        if "date_display" in features:
-            elements += "\n            <div className='date-display'>{new Date().toLocaleDateString()}</div>"
-        if "week_number" in features:
-            elements += "\n            <div className='week-number'>Week {Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000))}</div>"
-        
-        return elements
-    
-    def generate_component_content(self, component_info: Dict, ai_result: Dict, file_extension: str) -> str:
-        """Generate component content based on AI result and component info"""
-        
-        # If AI provided detailed implementation, use it
-        implementation = ai_result.get('implementation', '')
-        
-        if implementation and len(implementation) > 100:
-            return implementation
-        
-        # Otherwise, generate based on component info
-        if file_extension == '.jsx':
-            return self.generate_react_component(component_info)
-        elif file_extension == '.vue':
-            return self.generate_vue_component(component_info)
-        else:
-            return self.generate_js_component(component_info)
-    
-    def generate_react_component(self, component_info: Dict) -> str:
-        """Generate a React component"""
-        name = component_info['name']
-        features = component_info.get('features', [])
-        
-        return f"""import React, {{ useState, useEffect }} from 'react';
-
-const {name} = () => {{
-    {self.generate_react_hooks(features)}
-
-    return (
-        <div className="{name.lower()}-container">
-            <h2>{name}</h2>
-            {self.generate_react_jsx(features)}
-        </div>
-    );
-}};
-
-export default {name};
-"""
-    
-    def generate_react_hooks(self, features: list) -> str:
-        """Generate React hooks based on features"""
-        hooks = []
-        
-        if any(f in features for f in ["time_display", "real_time_updates"]):
-            hooks.append("const [currentTime, setCurrentTime] = useState(new Date());")
-            hooks.append("""
-    useEffect(() => {
-        const timer = setInterval(() => {
-            setCurrentTime(new Date());
-        }, 1000);
-        
-        return () => clearInterval(timer);
-    }, []);""")
-        
-        return "\n    ".join(hooks)
-    
-    def generate_react_jsx(self, features: list) -> str:
-        """Generate React JSX based on features"""
-        jsx_elements = []
-        
-        if "time_display" in features:
-            jsx_elements.append("<div className='time'>{currentTime.toLocaleTimeString()}</div>")
-        if "date_display" in features:
-            jsx_elements.append("<div className='date'>{currentTime.toLocaleDateString()}</div>")
-        if "week_number" in features:
-            jsx_elements.append("<div className='week'>Week {Math.ceil((currentTime - new Date(currentTime.getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000))}</div>")
-        
-        if not jsx_elements:
-            jsx_elements.append("<p>Component ready for customization</p>")
-        
-        return "\n            ".join(jsx_elements)
-    
-    def generate_vue_component(self, component_info: Dict) -> str:
-        """Generate a Vue component"""
-        name = component_info['name']
-        features = component_info.get('features', [])
-        
-        return f"""<template>
-    <div class="{name.lower()}-container">
-        <h2>{name}</h2>
-        {self.generate_vue_template(features)}
-    </div>
-</template>
-
-<script>
-export default {{
-    name: '{name}',
-    {self.generate_vue_script(features)}
-}};
-</script>
-
-<style scoped>
-.{name.lower()}-container {{
-    padding: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-}}
-</style>
-"""
-    
-    def generate_vue_template(self, features: list) -> str:
-        """Generate Vue template based on features"""
-        template_elements = []
-        
-        if "time_display" in features:
-            template_elements.append("<div class='time'>{{ currentTime.toLocaleTimeString() }}</div>")
-        if "date_display" in features:
-            template_elements.append("<div class='date'>{{ currentTime.toLocaleDateString() }}</div>")
-        if "week_number" in features:
-            template_elements.append("<div class='week'>Week {{ weekNumber }}</div>")
-        
-        if not template_elements:
-            template_elements.append("<p>Component ready for customization</p>")
-        
-        return "\n        ".join(template_elements)
-    
-    def generate_vue_script(self, features: list) -> str:
-        """Generate Vue script section based on features"""
-        if any(f in features for f in ["time_display", "real_time_updates", "week_number"]):
-            return """data() {
         return {
-            currentTime: new Date()
-        };
-    },
-    computed: {
-        weekNumber() {
-            const startOfYear = new Date(this.currentTime.getFullYear(), 0, 1);
-            return Math.ceil((this.currentTime - startOfYear) / (7 * 24 * 60 * 60 * 1000));
+            "type": "file_management_completed",
+            "project_path": project_dir,
+            "message": f"Applied structured file plan (created {len(created_files)} files, {len(created_dirs)} dirs)",
+            "files_created": created_files,
+            "directories_created": created_dirs,
+            "commands_suggested": commands,
+            "commands_executed": executed,
+            "commands_backgrounded": backgrounded,
+            "commands_deferred": deferred,
+            "command_errors": exec_errors
         }
-    },
-    mounted() {
-        this.timer = setInterval(() => {
-            this.currentTime = new Date();
-        }, 1000);
-    },
-    beforeUnmount() {
-        if (this.timer) {
-            clearInterval(this.timer);
-        }
-    }"""
-        else:
-            return """data() {
-        return {};
-    }"""
-    
-    def generate_js_component(self, component_info: Dict) -> str:
-        """Generate a JavaScript component"""
-        name = component_info['name']
-        features = component_info.get('features', [])
-        
-        return f"""class {name} {{
-    constructor(container) {{
-        this.container = container;
-        {self.generate_js_properties(features)}
-        this.init();
-    }}
-    
-    init() {{
-        this.render();
-        {self.generate_js_init(features)}
-    }}
-    
-    render() {{
-        this.container.innerHTML = `
-            <div class="{name.lower()}-component">
-                <h2>{name}</h2>
-                {self.generate_js_html(features)}
-            </div>
-        `;
-    }}
-    
-    {self.generate_js_methods(features)}
-}}
 
-export default {name};
-"""
+    def monitor_background_jobs(self):
+        """Monitor background scaffold jobs; when they finish, try to run deferred commands."""
+        import errno
+        import subprocess, shlex
+
+        def pid_running(pid: int) -> bool:
+            try:
+                # Signal 0 checks for existence without killing
+                os.kill(pid, 0)
+            except OSError as e:
+                return e.errno == errno.EPERM  # Process exists but no permission
+            else:
+                return True
+
+        def find_app_dir(project_dir: str, predicted: str = None) -> str:
+            # Prefer predicted if it exists and has package.json
+            if predicted and os.path.exists(predicted) and os.path.exists(os.path.join(predicted, 'package.json')):
+                return predicted
+            # Look for a single subdirectory with package.json
+            try:
+                for root, dirs, files in os.walk(project_dir):
+                    # limit depth: immediate children first
+                    for d in dirs:
+                        candidate = os.path.join(root, d)
+                        if os.path.exists(os.path.join(candidate, 'package.json')):
+                            return candidate
+                    break  # only immediate level
+            except Exception:
+                pass
+            # As a fallback, use the project_dir if it contains package.json
+            if os.path.exists(os.path.join(project_dir, 'package.json')):
+                return project_dir
+            return None
+
+        while getattr(self, 'running', False):
+            try:
+                # Work on a shallow copy to allow modification
+                jobs_snapshot = list(self.bg_jobs)
+                for job in jobs_snapshot:
+                    pid = job.get('pid')
+                    proj = job.get('project_dir')
+                    pred = job.get('predicted_app_dir')
+                    cmd = job.get('command')
+                    if not pid:
+                        try:
+                            self.bg_jobs.remove(job)
+                        except ValueError:
+                            pass
+                        continue
+
+                    if not pid_running(pid):
+                        # Background process finished
+                        try:
+                            self.bg_jobs.remove(job)
+                        except ValueError:
+                            pass
+                        colored_print(f"MONITOR: Background job finished (PID {pid}): {cmd}", Colors.BRIGHT_GREEN)
+
+                        # Try to run deferred commands if any
+                        queue = self.deferred_cmds.get(proj) or []
+                        if not queue:
+                            continue
+
+                        app_dir = find_app_dir(proj, pred)
+                        if not app_dir:
+                            # No app dir detected yet; keep commands queued for next cycle
+                            colored_print(f"MONITOR: App dir not ready; deferrals remain queued for {proj}", Colors.YELLOW)
+                            # Re-append job marker with no pid to retry later (lightweight)
+                            continue
+
+                        # Run deferred commands sequentially
+                        log_dir = os.path.join(proj, '.agent_logs')
+                        os.makedirs(log_dir, exist_ok=True)
+                        ts = time.strftime('%Y%m%d_%H%M%S')
+                        log_file = os.path.join(log_dir, f'deferred_{ts}.log')
+                        colored_print(f"MONITOR: Running {len(queue)} deferred command(s) in {app_dir}", Colors.CYAN)
+                        with open(log_file, 'a') as lf:
+                            for dcmd in list(queue):
+                                try:
+                                    lf.write(f"\n$ {dcmd}\n")
+                                    result = subprocess.run(shlex.split(dcmd), cwd=app_dir, stdout=lf, stderr=lf, text=True)
+                                    if result.returncode == 0:
+                                        colored_print(f"   OK (deferred): {dcmd}", Colors.GREEN)
+                                    else:
+                                        colored_print(f"   ERROR (deferred {result.returncode}): {dcmd}", Colors.RED)
+                                except FileNotFoundError:
+                                    colored_print(f"   NOT FOUND (deferred): {dcmd.split()[0]}", Colors.RED)
+                                except Exception as e:
+                                    colored_print(f"   FAILED (deferred): {dcmd} ({e})", Colors.RED)
+                                finally:
+                                    # pop processed command regardless of success
+                                    try:
+                                        self.deferred_cmds[proj].pop(0)
+                                    except Exception:
+                                        pass
+
+                        # Notify coordinator about completion
+                        try:
+                            self.comm.send_message(self.agent_id, 'coordinator', 
+                                f"Deferred commands executed for project at {proj}. Log: {os.path.relpath(log_file, proj)}",
+                                message_type='info')
+                        except Exception:
+                            pass
+
+                time.sleep(3)
+            except Exception as e:
+                colored_print(f"MONITOR ERROR: {e}", Colors.RED)
+                time.sleep(5)
     
-    def generate_js_properties(self, features: list) -> str:
-        """Generate JavaScript properties based on features"""
-        if any(f in features for f in ["time_display", "real_time_updates"]):
-            return "this.currentTime = new Date();"
-        return ""
-    
-    def generate_js_init(self, features: list) -> str:
-        """Generate JavaScript initialization based on features"""
-        if any(f in features for f in ["time_display", "real_time_updates"]):
-            return """this.timer = setInterval(() => {
-            this.currentTime = new Date();
-            this.updateDisplay();
-        }, 1000);"""
-        return ""
-    
-    def generate_js_html(self, features: list) -> str:
-        """Generate JavaScript HTML based on features"""
-        html_elements = []
-        
-        if "time_display" in features:
-            html_elements.append("<div class='time' id='time-display'></div>")
-        if "date_display" in features:
-            html_elements.append("<div class='date' id='date-display'></div>")
-        if "week_number" in features:
-            html_elements.append("<div class='week' id='week-display'></div>")
-        
-        if not html_elements:
-            html_elements.append("<p>Component ready for customization</p>")
-        
-        return "\\n                ".join(html_elements)
-    
-    def generate_js_methods(self, features: list) -> str:
-        """Generate JavaScript methods based on features"""
-        if any(f in features for f in ["time_display", "real_time_updates", "date_display", "week_number"]):
-            return """updateDisplay() {
-        const timeEl = this.container.querySelector('#time-display');
-        const dateEl = this.container.querySelector('#date-display');
-        const weekEl = this.container.querySelector('#week-display');
-        
-        if (timeEl) timeEl.textContent = this.currentTime.toLocaleTimeString();
-        if (dateEl) dateEl.textContent = this.currentTime.toLocaleDateString();
-        if (weekEl) {
-            const startOfYear = new Date(this.currentTime.getFullYear(), 0, 1);
-            const weekNumber = Math.ceil((this.currentTime - startOfYear) / (7 * 24 * 60 * 60 * 1000));
-            weekEl.textContent = `Week ${weekNumber}`;
-        }
-    }
-    
-    destroy() {
-        if (this.timer) {
-            clearInterval(this.timer);
-        }
-    }"""
-        else:
-            return """// Add custom methods here"""
+    def _parse_ai_files_payload(self, text: str) -> list:
+        """Parse AI output to a list of {path, content} dicts.
+
+        Accepted forms:
+        - Strict JSON: {"files":[{"path":"...","content":"..."}, ...]}
+        - JSON object keyed by file paths: {"src/App.js":"...", ...}
+        - Fallback: none (returns [])
+        """
+        import json, re
+
+        if not text or not isinstance(text, str):
+            return []
+
+        candidates = []
+
+        # Try to extract JSON blocks first
+        code_blocks = re.findall(r"```(?:json)?\n(.*?)```", text, flags=re.S)
+        if code_blocks:
+            for block in code_blocks:
+                try:
+                    obj = json.loads(block)
+                    candidates.append(obj)
+                except Exception:
+                    continue
+
+        # If no fenced blocks, try the whole text as JSON
+        if not candidates:
+            try:
+                candidates.append(json.loads(text))
+            except Exception:
+                pass
+
+        files = []
+        for obj in candidates:
+            if not isinstance(obj, dict):
+                continue
+            if 'files' in obj and isinstance(obj['files'], list):
+                for f in obj['files']:
+                    if isinstance(f, dict) and 'path' in f and 'content' in f:
+                        files.append({'path': f['path'], 'content': f.get('content', '')})
+            else:
+                # Map-style: {"path":"content"}
+                all_strings = all(isinstance(k, str) and isinstance(v, str) for k, v in obj.items())
+                if all_strings:
+                    for k, v in obj.items():
+                        files.append({'path': k, 'content': v})
+
+        return files
     
     def create_component_in_existing_project(self, project_path: str, description: str, task_data: Dict = None) -> Dict:
         """Create a component/file within an existing project"""
@@ -2114,7 +2354,8 @@ export default {name};
         if ai_result.get('status') == 'success':
             files_created = self.execute_ai_component_creation(project_path, component_info, ai_result)
         else:
-            files_created = self.create_fallback_component(project_path, component_info)
+            colored_print(f"   WARNING: AI model unavailable for component creation; skipping hard-coded fallbacks by design.", Colors.YELLOW)
+            files_created = []
         
         colored_print(f"   SUCCESS: Created component '{component_info.get('name')}' with {len(files_created)} files", Colors.BRIGHT_GREEN)
         
@@ -2609,10 +2850,12 @@ export default {name};
             full_path = os.path.join(project_path, file_path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             
-            with open(full_path, 'w') as f:
-                f.write(content)
-            
-            colored_print(f"   SUCCESS: Created: {file_path}", Colors.GREEN)
+            if content:
+                with open(full_path, 'w') as f:
+                    f.write(content)
+                colored_print(f"   SUCCESS: Created: {file_path}", Colors.GREEN)
+            else:
+                colored_print(f"   SKIP: No AI content for {file_path} (AI unavailable)", Colors.YELLOW)
     
     def parse_ai_project_output(self, ai_output: str) -> Dict[str, str]:
         """Parse AI output to extract file structure"""
@@ -2652,32 +2895,12 @@ export default {name};
         
         # Execute AI file generation
         ai_result = self.execute_standardized_ai_operation(standardized_input)
-        
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self.get_universal_fallback_content(file_path, project_info))
-        
-        return self.get_universal_fallback_content(file_path, project_info)
+            return ai_result.get('implementation', '')
+        # AI-only policy: no hard-coded fallbacks
+        return ""
     
-    def get_universal_fallback_content(self, file_path: str, project_info: Dict) -> str:
-        """Get universal fallback content for any file type"""
-        
-        file_ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
-        project_name = project_info.get('name', 'Project')
-        
-        if file_ext == 'md':
-            return f"# {project_name}\n\nUniversal project created with AI-powered multi-agent collaboration.\n\n## Setup\n\n1. Install dependencies\n2. Run the application\n\n## Features\n\nAI-generated features based on project requirements."
-        
-        elif file_ext == 'json':
-            return f'{{\n  "name": "{project_name.lower()}",\n  "version": "1.0.0",\n  "description": "Universal project created with AI collaboration",\n  "main": "src/index.js",\n  "scripts": {{\n    "start": "echo \\"Please configure start script\\"",\n    "build": "echo \\"Please configure build script\\""\n  }}\n}}'
-        
-        elif file_ext in ['js', 'ts']:
-            return f"// {project_name} - Universal AI-generated entry point\n\n// Main application logic\nconsole.log('{project_name} started with AI collaboration');\n\n// TODO: Implement main functionality based on project requirements"
-        
-        elif file_ext == 'css':
-            return f"/* {project_name} - Universal AI-generated styles */\n\nbody {{\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n  margin: 0;\n  padding: 20px;\n  background: #f5f5f5;\n}}\n\n.container {{\n  max-width: 1200px;\n  margin: 0 auto;\n  background: white;\n  padding: 20px;\n  border-radius: 8px;\n  box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n}}"
-        
-        else:
-            return f"# {project_name}\n\nUniversal file created with AI-powered multi-agent collaboration.\nFile type: {file_ext or 'generic'}\nGenerated automatically based on project requirements."
+    # NOTE: Removed universal hard-coded fallback content. AI-only generation is enforced.
     
     def create_react_structure(self, project_path: str, project_info: Dict):
         """Create React project structure"""
@@ -2704,22 +2927,26 @@ export default {name};
             "public/index.html": self.generate_react_html(project_info),
             "src/index.js": self.generate_react_index_js(),
             "src/App.js": self.generate_react_app_js(project_info),
-            "src/styles/App.css": self.generate_react_css(),
-            "src/styles/index.css": "/* Global styles */"
+            "src/styles/App.css": self.generate_react_css()
         }
         
         # Create component files for specific components
         for component in project_info["components"]:
             if component in ["TimeDisplay", "DateDisplay", "WeekDisplay"]:
                 component_file = f"src/components/{component}.js"
-                files_to_create[component_file] = self.generate_react_component(component)
+                comp_content = self.generate_react_component(component)
+                if comp_content:
+                    files_to_create[component_file] = comp_content
         
         # Write all files
-        for file_path, content in files_to_create.items():
+        for file_path, content in list(files_to_create.items()):
             full_file_path = os.path.join(project_path, file_path)
             with open(full_file_path, 'w') as f:
-                f.write(content)
-            colored_print(f"    Created: {file_path}", Colors.GREEN)
+                if content:
+                    f.write(content)
+                    colored_print(f"    Created: {file_path}", Colors.GREEN)
+                else:
+                    colored_print(f"    SKIP: No AI content for {file_path}", Colors.YELLOW)
     
     def create_generic_structure(self, project_path: str, project_info: Dict):
         """Create generic project structure"""
@@ -2772,28 +2999,9 @@ OUTPUT ONLY THE JSON CONTENT - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_package_json(project_info))
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_package_json(project_info)
-    
-    def _fallback_package_json(self, project_info: Dict) -> str:
-        """Fallback package.json when AI unavailable"""
-        return f'''{{
-  "name": "{project_info['name'].lower()}",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {{
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1"
-  }},
-  "scripts": {{
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test"
-  }}
-}}'''
+            return ai_result.get('implementation', '')
+        # AI-only policy: no hard-coded fallback
+        return ""
     
     def generate_readme(self, project_info: Dict) -> str:
         """Generate README.md using AI collaboration with project context"""
@@ -2826,28 +3034,8 @@ OUTPUT ONLY THE MARKDOWN CONTENT - NO CODE BLOCKS OR EXPLANATIONS."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_readme(project_info))
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_readme(project_info)
-    
-    def _fallback_readme(self, project_info: Dict) -> str:
-        """Fallback README when AI unavailable"""
-        return f'''# {project_info['name']}
-
-A {project_info.get('framework', 'generic')} application created using AI-powered Project_Process collaboration.
-
-## Features
-{chr(10).join(f"- {component}" for component in project_info.get('components', []))}
-
-## Setup
-1. Install dependencies
-2. Run the application
-3. Open in browser
-
-## Created with Project_Process Paradigm
-Generated by Multi-Agent AI Collaboration - {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-'''
+            return ai_result.get('implementation', '')
+        return ""
     
     def generate_react_html(self, project_info: Dict) -> str:
         """Generate public/index.html using AI collaboration with project context"""
@@ -2872,27 +3060,8 @@ OUTPUT ONLY THE HTML CONTENT - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_react_html(project_info))
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_react_html(project_info)
-    
-    def _fallback_react_html(self, project_info: Dict) -> str:
-        """Fallback HTML when AI unavailable"""
-        return f'''<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta name="description" content="{project_info['name']} - Created with AI Project_Process" />
-    <title>{project_info['name']}</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-  </body>
-</html>'''
+            return ai_result.get('implementation', '')
+        return ""
     
     def generate_react_index_js(self) -> str:
         """Generate src/index.js using AI collaboration with project context"""
@@ -2917,24 +3086,8 @@ OUTPUT ONLY THE JAVASCRIPT CODE - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_react_index_js())
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_react_index_js()
-    
-    def _fallback_react_index_js(self) -> str:
-        """Fallback index.js when AI unavailable"""
-        return '''import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './styles/index.css';
-import App from './App';
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);'''
+            return ai_result.get('implementation', '')
+        return ""
     
     def generate_react_app_js(self, project_info: Dict) -> str:
         """Generate src/App.js using AI collaboration with project context"""
@@ -2961,42 +3114,8 @@ OUTPUT ONLY THE JSX/JAVASCRIPT CODE - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_react_app_js(project_info))
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_react_app_js(project_info)
-    
-    def _fallback_react_app_js(self, project_info: Dict) -> str:
-        """Fallback App.js when AI unavailable"""
-        imports = []
-        components_jsx = []
-        
-        for component in project_info.get("components", []):
-            imports.append(f"import {component} from './components/{component}';")
-            components_jsx.append(f"        <{component} />")
-        
-        imports_str = chr(10).join(imports)
-        components_str = chr(10).join(components_jsx)
-        
-        return f'''import React from 'react';
-import './styles/App.css';
-{imports_str}
-
-function App() {{
-  return (
-    <div className="App">
-      <header className="App-header">
-        <h1>{project_info['name']}</h1>
-        <p>AI-Powered Project_Process Application</p>
-      </header>
-      <main className="App-main">
-{components_str}
-      </main>
-    </div>
-  );
-}}
-
-export default App;'''
+            return ai_result.get('implementation', '')
+        return ""
     
     def generate_react_css(self) -> str:
         """Generate CSS using AI collaboration with project context"""
@@ -3023,46 +3142,11 @@ OUTPUT ONLY THE CSS CONTENT - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_react_css())
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_react_css()
-    
-    def _fallback_react_css(self) -> str:
-        """Fallback CSS when AI unavailable"""
-        return '''.App {
-  text-align: center;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-
-.App-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-  color: white;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-}
-
-.App-main {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.component {
-  margin: 20px;
-  padding: 15px;
-  border-radius: 12px;
-  background: white;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  transition: transform 0.2s ease;
-}
-
-.component:hover {
-  transform: translateY(-2px);
-}'''
+            return ai_result.get('implementation', '')
+        return ""
     
     def generate_react_component(self, component_name: str) -> str:
-        """Generate React component using AI collaboration with project context"""
+        """Generate React component using AI collaboration with project context (AI-only)."""
         
         # Get project context for AI model
         project_context = self.get_project_context_for_ai()
@@ -3085,39 +3169,8 @@ OUTPUT ONLY THE JSX/JAVASCRIPT CODE - NO EXPLANATIONS OR MARKDOWN FORMATTING."""
         # Try AI generation first
         ai_result = self.try_ai_implementation(prompt)
         if ai_result.get('status') == 'success':
-            return ai_result.get('implementation', self._fallback_react_component(component_name))
-        
-        # Fallback to basic template if AI unavailable
-        return self._fallback_react_component(component_name)
-    
-    def _fallback_react_component(self, component_name: str) -> str:
-        """Fallback React component when AI unavailable"""
-        return f'''import React, {{ useState, useEffect }} from 'react';
-
-const {component_name} = () => {{
-  const [data, setData] = useState('');
-
-  useEffect(() => {{
-    // AI-generated component logic would go here
-    const updateData = () => {{
-      setData(new Date().toLocaleString());
-    }};
-    
-    updateData();
-    const interval = setInterval(updateData, 1000);
-    
-    return () => clearInterval(interval);
-  }}, []);
-
-  return (
-    <div className="component {component_name.lower()}">
-      <h3>{component_name}</h3>
-      <p>{{data}}</p>
-    </div>
-  );
-}};
-
-export default {component_name};'''
+            return ai_result.get('implementation', '')
+        return ""
     
     def handle_git_management_task(self, task: Dict) -> Dict:
         """Handle git management tasks"""
@@ -4031,27 +4084,34 @@ def main():
                             }
                             
                             assigned_to = role_mapping.get(target_agent, target_agent)
-                            
-                            # IMPORTANT: Include current project context in task data
-                            task_data = enriched_description.get('task_data', {})
-                            if hasattr(agent, 'current_project_process') and agent.current_project_process:
-                                task_data['project_name'] = agent.current_project_process
-                                task_data['project_workspace'] = str(agent.project_process_workspace)
-                                colored_print(f"Including project context: {agent.current_project_process}", Colors.CYAN)
-                            
-                            # Use enriched description if AI enhancement succeeded
-                            final_description = enriched_description.get('enhanced_description', description)
-                            
-                            task_id = agent.comm.create_task(
-                                task_type="general",
-                                description=final_description,
-                                assigned_to=assigned_to,
-                                created_by=agent_id,
-                                data=task_data
-                            )
-                            colored_print(f"Task {task_id} created and delegated to {target_agent}!", Colors.GREEN)
-                            if enriched_description.get('was_enhanced'):
-                                colored_print(f"AI: Task description enhanced with best practices", Colors.CYAN)
+
+                            # If delegating to file manager, enrich and split into structured subtasks
+                            if assigned_to in ['files', 'file_manager']:
+                                proj_name = agent.current_project_process if hasattr(agent, 'current_project_process') else None
+                                proj_path = str(agent.project_process_workspace) if hasattr(agent, 'project_process_workspace') and agent.project_process_workspace else None
+                                created = agent.split_and_delegate_enriched_task(description, proj_name, proj_path)
+                                colored_print(f"Created {len(created)} task(s) from enriched plan and delegated to appropriate agents", Colors.GREEN)
+                            else:
+                                # IMPORTANT: Include current project context in task data
+                                task_data = enriched_description.get('task_data', {})
+                                if hasattr(agent, 'current_project_process') and agent.current_project_process:
+                                    task_data['project_name'] = agent.current_project_process
+                                    task_data['project_workspace'] = str(agent.project_process_workspace)
+                                    colored_print(f"Including project context: {agent.current_project_process}", Colors.CYAN)
+
+                                # Use enriched description if AI enhancement succeeded
+                                final_description = enriched_description.get('enhanced_description', description)
+
+                                task_id = agent.comm.create_task(
+                                    task_type="general",
+                                    description=final_description,
+                                    assigned_to=assigned_to,
+                                    created_by=agent_id,
+                                    data=task_data
+                                )
+                                colored_print(f"Task {task_id} created and delegated to {target_agent}!", Colors.GREEN)
+                                if enriched_description.get('was_enhanced'):
+                                    colored_print(f"AI: Task description enhanced with best practices", Colors.CYAN)
                         else:
                             colored_print("Invalid format. Use: delegate \"description\" to agent_name", Colors.RED)
                     else:

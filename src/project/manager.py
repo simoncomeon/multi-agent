@@ -107,7 +107,7 @@ class ProjectManager:
         return project_path
     
     def _create_react_structure(self, project_path: str, project_info: Dict):
-        """Create React project structure"""
+        """Create React project structure (AI-only content generation)."""
         
         # Create directories
         directories = [
@@ -117,41 +117,20 @@ class ProjectManager:
             "src/hooks",
             "public"
         ]
-        
         for directory in directories:
             os.makedirs(os.path.join(project_path, directory), exist_ok=True)
-        
-        # Create package.json
-        package_json = {
-            "name": project_info.get("name", "react-app").lower(),
-            "version": "0.1.0",
-            "private": True,
-            "dependencies": {
-                "react": "^18.2.0",
-                "react-dom": "^18.2.0",
-                "react-scripts": "5.0.1"
-            },
-            "scripts": {
-                "start": "react-scripts start",
-                "build": "react-scripts build",
-                "test": "react-scripts test",
-                "eject": "react-scripts eject"
-            },
-            "browserslist": {
-                "production": [">0.2%", "not dead", "not op_mini all"],
-                "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
-            }
-        }
-        
-        with open(os.path.join(project_path, "package.json"), 'w') as f:
-            json.dump(package_json, f, indent=2)
-        
-        # Create basic React files
-        self._create_react_files(project_path, project_info)
+
+        # AI-generate core files
+        self._ai_write(project_path, "package.json", project_info)
+        self._ai_write(project_path, "public/index.html", project_info)
+        self._ai_write(project_path, "src/index.js", project_info)
+        self._ai_write(project_path, "src/App.js", project_info)
+        self._ai_write(project_path, "src/styles/App.css", project_info)
+        self._ai_write(project_path, "src/styles/index.css", project_info)
     
     def _create_vue_structure(self, project_path: str, project_info: Dict):
-        """Create Vue project structure"""
-        
+        """Create Vue project structure (AI-only content generation)."""
+
         directories = [
             "src/components",
             "src/views",
@@ -159,31 +138,17 @@ class ProjectManager:
             "src/router",
             "public"
         ]
-        
         for directory in directories:
             os.makedirs(os.path.join(project_path, directory), exist_ok=True)
-        
-        # Create package.json for Vue
-        package_json = {
-            "name": project_info.get("name", "vue-app").lower(),
-            "version": "0.1.0",
-            "scripts": {
-                "serve": "vue-cli-service serve",
-                "build": "vue-cli-service build"
-            },
-            "dependencies": {
-                "vue": "^3.0.0"
-            },
-            "devDependencies": {
-                "@vue/cli-service": "~5.0.0"
-            }
-        }
-        
-        with open(os.path.join(project_path, "package.json"), 'w') as f:
-            json.dump(package_json, f, indent=2)
+
+        # AI-generate core files
+        self._ai_write(project_path, "package.json", project_info)
+        self._ai_write(project_path, "public/index.html", project_info)
+        self._ai_write(project_path, "src/main.js", project_info)
+        self._ai_write(project_path, "src/App.vue", project_info)
     
     def _create_python_structure(self, project_path: str, project_info: Dict):
-        """Create Python project structure"""
+        """Create Python project structure (AI-only content generation)."""
         
         directories = [
             "src",
@@ -191,38 +156,16 @@ class ProjectManager:
             "docs",
             "scripts"
         ]
-        
         for directory in directories:
             os.makedirs(os.path.join(project_path, directory), exist_ok=True)
-        
-        # Create requirements.txt
-        requirements = [
-            "flask>=2.0.0",
-            "requests>=2.25.0",
-            "pytest>=6.0.0"
-        ]
-        
-        with open(os.path.join(project_path, "requirements.txt"), 'w') as f:
-            f.write("\\n".join(requirements))
-        
-        # Create setup.py
-        setup_content = f'''from setuptools import setup, find_packages
 
-setup(
-    name="{project_info.get('name', 'python-app').lower()}",
-    version="0.1.0",
-    packages=find_packages(),
-    install_requires=[
-        "flask>=2.0.0",
-        "requests>=2.25.0",
-    ],
-)'''
-        
-        with open(os.path.join(project_path, "setup.py"), 'w') as f:
-            f.write(setup_content)
+        # AI-generate typical files
+        self._ai_write(project_path, "requirements.txt", project_info)
+        self._ai_write(project_path, "setup.py", project_info)
+        self._ai_write(project_path, "src/__init__.py", project_info)
     
     def _create_nodejs_structure(self, project_path: str, project_info: Dict):
-        """Create Node.js project structure"""
+        """Create Node.js project structure (AI-only content generation)."""
         
         directories = [
             "src",
@@ -232,36 +175,15 @@ setup(
             "middleware",
             "tests"
         ]
-        
         for directory in directories:
             os.makedirs(os.path.join(project_path, directory), exist_ok=True)
-        
-        # Create package.json for Node.js
-        package_json = {
-            "name": project_info.get("name", "node-app").lower(),
-            "version": "1.0.0",
-            "main": "src/index.js",
-            "scripts": {
-                "start": "node src/index.js",
-                "dev": "nodemon src/index.js",
-                "test": "jest"
-            },
-            "dependencies": {
-                "express": "^4.18.0",
-                "cors": "^2.8.5",
-                "dotenv": "^16.0.0"
-            },
-            "devDependencies": {
-                "nodemon": "^2.0.15",
-                "jest": "^28.0.0"
-            }
-        }
-        
-        with open(os.path.join(project_path, "package.json"), 'w') as f:
-            json.dump(package_json, f, indent=2)
+
+        # AI-generate core files
+        self._ai_write(project_path, "package.json", project_info)
+        self._ai_write(project_path, "src/index.js", project_info)
     
     def _create_generic_structure(self, project_path: str, project_info: Dict):
-        """Create generic project structure"""
+        """Create generic project structure (AI-only content generation)."""
         
         directories = [
             "src",
@@ -269,134 +191,35 @@ setup(
             "docs",
             "tests"
         ]
-        
         for directory in directories:
             os.makedirs(os.path.join(project_path, directory), exist_ok=True)
-        
-        # Create README
-        readme_content = f'''# {project_info.get('name', 'Project')}
 
-## Description
-{project_info.get('description', 'A new project created by Multi-Agent AI Terminal')}
-
-## Features
-{chr(10).join(f"- {feature}" for feature in project_info.get('features', []))}
-
-## Getting Started
-
-### Installation
-1. Clone the repository
-2. Install dependencies
-3. Run the project
-
-## Usage
-Describe how to use your project here.
-
-## Contributing
-Guidelines for contributing to the project.
-
-## License
-MIT License
-'''
-        
-        with open(os.path.join(project_path, "README.md"), 'w') as f:
-            f.write(readme_content)
+        # AI-generate README or other top-level files
+        self._ai_write(project_path, "README.md", project_info)
     
-    def _create_react_files(self, project_path: str, project_info: Dict):
-        """Create basic React application files"""
-        
-        # Create public/index.html
-        index_html = '''<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>''' + project_info.get('name', 'React App') + '''</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-  </body>
-</html>'''
-        
-        with open(os.path.join(project_path, "public", "index.html"), 'w') as f:
-            f.write(index_html)
-        
-        # Create src/index.js
-        index_js = '''import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './styles/index.css';
-import App from './App';
+        def _create_react_files(self, project_path: str, project_info: Dict):
+                """Create basic React application files using AI-only content generation."""
+                self._ai_write(project_path, "public/index.html", project_info)
+                self._ai_write(project_path, "src/index.js", project_info)
+                self._ai_write(project_path, "src/App.js", project_info)
+                self._ai_write(project_path, "src/styles/App.css", project_info)
+                self._ai_write(project_path, "src/styles/index.css", project_info)
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);'''
-        
-        with open(os.path.join(project_path, "src", "index.js"), 'w') as f:
-            f.write(index_js)
-        
-        # Create src/App.js
-        app_js = '''import React from 'react';
-import './styles/App.css';
-
-function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <h1>''' + project_info.get('name', 'React App') + '''</h1>
-        <p>Welcome to your new React application!</p>
-      </header>
-    </div>
-  );
-}
-
-export default App;'''
-        
-        with open(os.path.join(project_path, "src", "App.js"), 'w') as f:
-            f.write(app_js)
-        
-        # Create basic CSS files
-        app_css = '''.App {
-  text-align: center;
-}
-
-.App-header {
-  background-color: #282c34;
-  padding: 20px;
-  color: white;
-  min-height: 50vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.App-header h1 {
-  margin-bottom: 20px;
-}'''
-        
-        with open(os.path.join(project_path, "src", "styles", "App.css"), 'w') as f:
-            f.write(app_css)
-        
-        # Create index.css
-        index_css = '''body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-}'''
-        
-        with open(os.path.join(project_path, "src", "styles", "index.css"), 'w') as f:
-            f.write(index_css)
+        def _ai_write(self, project_path: str, rel_path: str, project_info: Dict):
+                """Ask AI for content and write to rel_path under project_path if provided."""
+                try:
+                        # Use terminal's universal generator to avoid hard-coded content
+                        content = self.terminal.generate_universal_file_content(rel_path, "", project_info)
+                        abs_path = os.path.join(project_path, rel_path)
+                        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                        if content:
+                                with open(abs_path, 'w') as f:
+                                        f.write(content)
+                                colored_print(f"    AI-WROTE: {rel_path}", Colors.GREEN)
+                        else:
+                                colored_print(f"    SKIP: No AI content for {rel_path}", Colors.YELLOW)
+                except Exception as e:
+                        colored_print(f"    ERROR: AI write failed for {rel_path}: {e}", Colors.RED)
     
     def list_created_files(self, project_path: str) -> List[str]:
         """List all files created in the project"""

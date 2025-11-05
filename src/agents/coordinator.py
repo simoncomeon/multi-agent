@@ -61,6 +61,22 @@ class CoordinatorAgent(BaseAgent):
         
         colored_print(f"Coordinator analyzing task for optimal delegation", Colors.BRIGHT_CYAN)
         colored_print(f"  Task: {description}", Colors.CYAN)
+
+        # FIRST: Try AI enrichment + split for high-level creation tasks
+        if isinstance(description, str):
+            desc_lower = description.lower()
+            if any(k in desc_lower for k in ["create", "scaffold", "setup", "initialize"]) and any(
+                fw in desc_lower for fw in ["react", "vue", "angular", "python", "flask", "django", "node", "express", "next"]
+            ):
+                split_res = self._enrich_and_split_task(description, task_input.data or {})
+                if split_res.get('delegated_tasks'):
+                    return TaskResult(
+                        success=True,
+                        message="Enriched and split task delegated to appropriate agents",
+                        data={'plan': split_res.get('plan')},
+                        delegated_tasks=split_res['delegated_tasks'],
+                        metadata={'delegation_type': 'enriched_split'}
+                    )
         
         # Analyze task complexity
         complexity_analysis = self._analyze_task_complexity(description, context)
@@ -77,6 +93,84 @@ class CoordinatorAgent(BaseAgent):
         self._track_delegation(task_input, result)
         
         return result
+
+    def _enrich_and_split_task(self, description: str, task_data: Dict) -> Dict:
+        """Enrich a high-level request, parse into file/code plans, and delegate."""
+        project_name = task_data.get('project_name')
+        project_workspace = task_data.get('project_workspace')
+
+        # Build prompt to return explicit file and code plans
+        prompt = f"""You are the coordinator in a multi-agent dev system. Enrich and split this request into concrete plans.
+
+REQUEST: {description}
+
+Return STRICT JSON with this structure:
+{{
+  "framework_detected": "react|vue|python|node|etc",
+  "file_plan": {{
+    "steps": ["..."],
+    "tools": ["..."],
+    "project_structure": {{"src": {{"components": {{}}}}, "public": {{}}}},
+    "files": ["package.json", "src/App.js", "public/index.html"]
+  }},
+  "code_plan": {{
+    "tasks": [
+      {{"target": "src/App.js", "description": "Implement main app shell with routing"}}
+    ]
+  }}
+}}
+
+Return ONLY JSON, no markdown fences."""
+
+        ai = self.execute_ai_operation(prompt)
+        plan = {}
+        try:
+            if ai.get('success'):
+                response = ai.get('response', '')
+                # Extract first JSON object robustly
+                import re, json as _json
+                m = re.search(r"\{[\s\S]*\}", response)
+                if m:
+                    plan = _json.loads(m.group(0))
+        except Exception as e:
+            colored_print(f"  Enrichment parse failed: {e}", Colors.YELLOW)
+
+        delegated = []
+        if plan.get('file_plan'):
+            fm_payload = plan['file_plan']
+            fm_task = self.comm.create_task(
+                task_type='file_management',
+                description=fm_payload,
+                assigned_to='file_manager',
+                created_by=self.agent_id,
+                priority=1,
+                data={
+                    'project_name': project_name,
+                    'project_workspace': project_workspace
+                }
+            )
+            delegated.append(fm_task)
+
+        # Delegate code tasks
+        code_tasks = (plan.get('code_plan') or {}).get('tasks') or []
+        for ct in code_tasks[:5]:  # cap to avoid flooding
+            target = ct.get('target', 'code file')
+            desc = ct.get('description', f"Implement {target}")
+            coder_desc = f"{desc} ({target})"
+            coder_task = self.comm.create_task(
+                task_type='code_generation',
+                description=coder_desc,
+                assigned_to='coder',
+                created_by=self.agent_id,
+                priority=1,
+                data={
+                    'project_name': project_name,
+                    'project_workspace': project_workspace
+                }
+            )
+            delegated.append(coder_task)
+
+        return {'delegated_tasks': delegated, 'plan': plan}
     
     def _analyze_task_complexity(self, description: str, context: Dict) -> Dict[str, Any]:
         """
